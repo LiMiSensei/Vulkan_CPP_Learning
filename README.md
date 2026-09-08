@@ -1,6 +1,6 @@
 # Vulkan_CPP_Learning
 
-基于 **GLFW + GLM + Vulkan** 的 C++ 渲染学习项目：绘制一个彩色三角形，着色器使用 **HLSL** 并在运行时通过 **DXC** 编译为 SPIR-V。
+基于 **GLFW + GLM + Vulkan + Imgui** 的 C++ 渲染学习项目：绘制一个彩色三角形，着色器使用 **HLSL** 并在运行时通过 **DXC** 编译为 SPIR-V。
 
 ## 技术栈
 
