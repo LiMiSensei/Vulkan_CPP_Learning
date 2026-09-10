@@ -19,6 +19,12 @@
 - CMake ≥ 4.3
 - Visual Studio 2022+（MSVC，C++20）
 
+
+
+- Windows
+- Vulkan SDK（提供 `dxcompiler.lib` / `dxcompiler.dll`）
+- CMake ≥ 4.3
+- Visual Studio 2022+（MSVC，C++20）
 ## 目录结构
 
 ```
