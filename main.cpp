@@ -145,7 +145,12 @@ static std::vector<char> compileHlslToSpirv(const std::string& source,
 // ---------------------------------------------------------------------------
 // 顶点结构（与 shaders/triangle.vert.hlsl 的输入匹配）
 // ---------------------------------------------------------------------------
-
+struct Vertex1 {
+    glm::vec2 pos;
+    glm::vec3 color;
+     glm::vec2 pos1;
+    glm::vec3 color2;
+}
 struct Vertex {
     glm::vec2 pos;
     glm::vec3 color;
