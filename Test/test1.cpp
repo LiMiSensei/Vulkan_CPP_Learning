@@ -1,4 +1,4 @@
-﻿#include <algorithm>
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -29,8 +29,8 @@ static constexpr uint32_t WIDTH = 800;
 static constexpr uint32_t HEIGHT = 600;
 static const char* WINDOW_TITLE = "Vulkan Triangle";
 
-static const std::vector<const char*> VALIDATION_LAYERS = { "VK_LAYER_KHRONOS_validation" };
-static const std::vector<const char*> DEVICE_EXTENSIONS = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+static const std::vector<const char *> VALIDATION_LAYERS = {"VK_LAYER_KHRONOS_validation"};
+static const std::vector<const char *> DEVICE_EXTENSIONS = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 
 #ifdef NDEBUG
 static constexpr bool ENABLE_VALIDATION = false;
@@ -99,7 +99,7 @@ static std::vector<char> compileHlslToSpirv(const std::string& source,
 
     ComPtr<IDxcBlobEncoding> pSource;
     if (FAILED(pUtils->CreateBlobFromPinned(source.data(), static_cast<UINT32>(source.size()),
-                                            DXC_CP_UTF8, &pSource))) {
+        DXC_CP_UTF8, &pSource))) {
         throw std::runtime_error("failed to create DXC source blob");
     }
 
@@ -110,7 +110,7 @@ static std::vector<char> compileHlslToSpirv(const std::string& source,
         L"-fspv-target-env=vulkan1.0",
     };
 
-    DxcBuffer buffer{ pSource->GetBufferPointer(), pSource->GetBufferSize(), DXC_CP_UTF8 };
+    DxcBuffer buffer{pSource->GetBufferPointer(), pSource->GetBufferSize(), DXC_CP_UTF8};
 
     ComPtr<IDxcResult> pResult;
     HRESULT hr = pCompiler->Compile(&buffer, args.data(), static_cast<UINT32>(args.size()),
@@ -125,7 +125,7 @@ static std::vector<char> compileHlslToSpirv(const std::string& source,
         ComPtr<IDxcBlobEncoding> pErrors;
         if (SUCCEEDED(pResult->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&pErrors), nullptr)) &&
             pErrors != nullptr && pErrors->GetBufferSize() > 0) {
-            std::string msg(static_cast<const char*>(pErrors->GetBufferPointer()),
+            std::string msg(static_cast<const char *>(pErrors->GetBufferPointer()),
                             pErrors->GetBufferSize());
             throw std::runtime_error("HLSL compilation failed:\n" + msg);
         }
@@ -138,19 +138,14 @@ static std::vector<char> compileHlslToSpirv(const std::string& source,
         throw std::runtime_error("failed to get SPIR-V output from DXC");
     }
 
-    const uint8_t* ptr = static_cast<const uint8_t*>(pObject->GetBufferPointer());
+    const uint8_t* ptr = static_cast<const uint8_t *>(pObject->GetBufferPointer());
     return std::vector<char>(ptr, ptr + pObject->GetBufferSize());
 }
 
 // ---------------------------------------------------------------------------
 // 顶点结构（与 shaders/triangle.vert.hlsl 的输入匹配）
 // ---------------------------------------------------------------------------
-struct Vertex1 {
-    glm::vec2 pos;
-    glm::vec3 color;
-     glm::vec2 pos1;
-    glm::vec3 color2;
-}
+
 struct Vertex {
     glm::vec2 pos;
     glm::vec3 color;
@@ -184,10 +179,10 @@ struct Vertex {
 class VulkanTriangleApp {
 public:
     void run() {
-        initWindow();   // ① 创建窗口
-        initVulkan();   // ② 初始化 Vulkan 全套资源
-        mainLoop();     // ③ 主循环：渲染每一帧
-        cleanup();      // ④ 释放所有资源
+        initWindow(); // ① 创建窗口
+        initVulkan(); // ② 初始化 Vulkan 全套资源
+        mainLoop(); // ③ 主循环：渲染每一帧
+        cleanup(); // ④ 释放所有资源
     }
 
 private:
@@ -252,33 +247,34 @@ private:
     // -----------------------------------------------------------------------
 
     void initWindow() {
-        glfwInit();                                              // 初始化 GLFW 库
-        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);       // 告诉 GLFW 不要创建 OpenGL 上下文
-        glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);          // 窗口可调整大小  
+        glfwInit(); // 初始化 GLFW 库
+        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API); // 告诉 GLFW 不要创建 OpenGL 上下文
+        glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE); // 窗口可调整大小
         m_window = glfwCreateWindow(WIDTH, HEIGHT, WINDOW_TITLE, nullptr, nullptr);
-        if (!m_window) {                                          // 若返回 nullptr 说明创建失败
+        if (!m_window) {
+            // 若返回 nullptr 说明创建失败
             glfwTerminate();
             throw std::runtime_error("failed to create GLFW window");
         }
-        glfwSetWindowUserPointer(m_window, this);          // 设置窗口用户指针，用于在回调中获取应用实例
+        glfwSetWindowUserPointer(m_window, this); // 设置窗口用户指针，用于在回调中获取应用实例
         glfwSetFramebufferSizeCallback(m_window, framebufferResizeCallback); // 设置窗口调整大小回调
     }
 
     void initVulkan() {
-        createInstance();           // 创建 VkInstance，Vulkan 应用的最顶层入口，记录应用信息 + 启用验证层和扩展。这是所有其他对象的"祖先"。
-        setupDebugMessenger();      // 设置调试消息回调，用于在运行时捕获错误和警告
-        createSurface();            // 创建 VkSurfaceKHR：把 GLFW 窗口"接入"Vulkan，后续交换链才能把渲染结果显示到该窗口。
-        pickPhysicalDevice();       // 枚举显卡，筛选出支持 Vulkan + 交换链 + 图形/呈现队列族的 GPU
-        createLogicalDevice();      // 基于物理设备创建逻辑设备 VkDevice（应用实际使用的句柄），拿到图形队列和呈现队列。
-        createSwapChain();          //  创建交换链，分配 N 个可显示图像（双缓冲/三缓冲），选择格式、色彩空间和呈现模式。
-        createImageViews();         //  为每个交换链图像创建 VkImageView（描述"如何解释这张图像"），管线渲染时通过 imageView 访问图像。
-        createRenderPass();         // 定义渲染流程：附件（这里就是交换链颜色缓冲）的格式、加载/存储行为（VK_ATTACHMENT_LOAD_OP_CLEAR 表示每帧清屏）、子流程依赖。
-        createGraphicsPipeline();   // 最重的一步：用 DXC 把 HLSL 编译成 SPIR-V 创建 shader 模块，再配置顶点输入布局、光栅化、深度测试、颜色混合，组装成 VkPipeline。
-        createFramebuffers();       // 把每个 imageView + renderPass 绑定成 VkFramebuffer，一个交换链图像对应一个帧缓冲。
-        createCommandPool();        // 创建命令池，GPU 命令从池中分配（创建在图形队列族上）。
-        createVertexBuffer();       
-        createCommandBuffer();      //  分配 1 个命令缓冲，并预先录制好绘制三角形的一整条命令序列（开始渲染流程、绑定管线、vkCmdDraw、结束）。
-        createSyncObjects();        // 创建同步原语：2 个信号量（图像就绪/渲染完成）+ 1 个 fence（防止上一帧还没结束就提交下一帧）。
+        createInstance(); // 创建 VkInstance，Vulkan 应用的最顶层入口，记录应用信息 + 启用验证层和扩展。这是所有其他对象的"祖先"。
+        setupDebugMessenger(); // 设置调试消息回调，用于在运行时捕获错误和警告
+        createSurface(); // 创建 VkSurfaceKHR：把 GLFW 窗口"接入"Vulkan，后续交换链才能把渲染结果显示到该窗口。
+        pickPhysicalDevice(); // 枚举显卡，筛选出支持 Vulkan + 交换链 + 图形/呈现队列族的 GPU
+        createLogicalDevice(); // 基于物理设备创建逻辑设备 VkDevice（应用实际使用的句柄），拿到图形队列和呈现队列。
+        createSwapChain(); //  创建交换链，分配 N 个可显示图像（双缓冲/三缓冲），选择格式、色彩空间和呈现模式。
+        createImageViews(); //  为每个交换链图像创建 VkImageView（描述"如何解释这张图像"），管线渲染时通过 imageView 访问图像。
+        createRenderPass(); // 定义渲染流程：附件（这里就是交换链颜色缓冲）的格式、加载/存储行为（VK_ATTACHMENT_LOAD_OP_CLEAR 表示每帧清屏）、子流程依赖。
+        createGraphicsPipeline(); // 最重的一步：用 DXC 把 HLSL 编译成 SPIR-V 创建 shader 模块，再配置顶点输入布局、光栅化、深度测试、颜色混合，组装成 VkPipeline。
+        createFramebuffers(); // 把每个 imageView + renderPass 绑定成 VkFramebuffer，一个交换链图像对应一个帧缓冲。
+        createCommandPool(); // 创建命令池，GPU 命令从池中分配（创建在图形队列族上）。
+        createVertexBuffer();
+        createCommandBuffer(); //  分配 1 个命令缓冲，并预先录制好绘制三角形的一整条命令序列（开始渲染流程、绑定管线、vkCmdDraw、结束）。
+        createSyncObjects(); // 创建同步原语：2 个信号量（图像就绪/渲染完成）+ 1 个 fence（防止上一帧还没结束就提交下一帧）。
     }
 
     // ---- 实例 ----
@@ -288,9 +284,9 @@ private:
         vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
         std::vector<VkLayerProperties> availableLayers(layerCount);
         vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
-        for (const char* layerName : VALIDATION_LAYERS) {
+        for (const char* layerName: VALIDATION_LAYERS) {
             bool found = false;
-            for (const auto& layer : availableLayers) {
+            for (const auto& layer: availableLayers) {
                 if (strcmp(layerName, layer.layerName) == 0) {
                     found = true;
                     break;
@@ -301,10 +297,10 @@ private:
         return true;
     }
 
-    std::vector<const char*> getRequiredExtensions() {
+    std::vector<const char *> getRequiredExtensions() {
         uint32_t glfwExtensionCount = 0;
         const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
-        std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
+        std::vector<const char *> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
         if (ENABLE_VALIDATION) {
             extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
         }
@@ -327,9 +323,9 @@ private:
         VkDebugUtilsMessageTypeFlagsEXT messageType,
         const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
         void* pUserData) {
-        (void)messageSeverity;
-        (void)messageType;
-        (void)pUserData;
+        (void) messageSeverity;
+        (void) messageType;
+        (void) pUserData;
         std::cerr << "validation layer: " << pCallbackData->pMessage << std::endl;
         return VK_FALSE;
     }
@@ -394,7 +390,7 @@ private:
         vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
 
         int i = 0;
-        for (const auto& queueFamily : queueFamilies) {
+        for (const auto& queueFamily: queueFamilies) {
             if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
                 indices.graphicsFamily = i;
             }
@@ -437,7 +433,7 @@ private:
         vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, availableExtensions.data());
 
         std::set<std::string> requiredExtensions(DEVICE_EXTENSIONS.begin(), DEVICE_EXTENSIONS.end());
-        for (const auto& extension : availableExtensions) {
+        for (const auto& extension: availableExtensions) {
             requiredExtensions.erase(extension.extensionName);
         }
         return requiredExtensions.empty();
@@ -464,7 +460,7 @@ private:
         std::vector<VkPhysicalDevice> devices(deviceCount);
         vkEnumeratePhysicalDevices(m_instance, &deviceCount, devices.data());
 
-        for (const auto& device : devices) {
+        for (const auto& device: devices) {
             if (isDeviceSuitable(device)) {
                 m_physicalDevice = device;
                 break;
@@ -480,11 +476,13 @@ private:
     void createLogicalDevice() {
         QueueFamilyIndices indices = findQueueFamilies(m_physicalDevice);
 
-        std::set<uint32_t> uniqueQueueFamilies = { indices.graphicsFamily.value(),
-                                                   indices.presentFamily.value() };
+        std::set<uint32_t> uniqueQueueFamilies = {
+            indices.graphicsFamily.value(),
+            indices.presentFamily.value()
+        };
         std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
         float queuePriority = 1.0f;
-        for (uint32_t queueFamily : uniqueQueueFamilies) {
+        for (uint32_t queueFamily: uniqueQueueFamilies) {
             VkDeviceQueueCreateInfo queueCreateInfo{};
             queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
             queueCreateInfo.queueFamilyIndex = queueFamily;
@@ -516,7 +514,7 @@ private:
     // ---- 交换链 ----
 
     VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats) {
-        for (const auto& availableFormat : availableFormats) {
+        for (const auto& availableFormat: availableFormats) {
             if (availableFormat.format == VK_FORMAT_B8G8R8A8_SRGB &&
                 availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
                 return availableFormat;
@@ -526,7 +524,7 @@ private:
     }
 
     VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes) {
-        for (const auto& availablePresentMode : availablePresentModes) {
+        for (const auto& availablePresentMode: availablePresentModes) {
             if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
                 return availablePresentMode;
             }
@@ -540,7 +538,7 @@ private:
         }
         int width = 0, height = 0;
         glfwGetFramebufferSize(m_window, &width, &height);
-        VkExtent2D actualExtent = { static_cast<uint32_t>(width), static_cast<uint32_t>(height) };
+        VkExtent2D actualExtent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
         actualExtent.width = std::clamp(actualExtent.width, capabilities.minImageExtent.width,
                                         capabilities.maxImageExtent.width);
         actualExtent.height = std::clamp(actualExtent.height, capabilities.minImageExtent.height,
@@ -570,7 +568,7 @@ private:
         createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
         QueueFamilyIndices indices = findQueueFamilies(m_physicalDevice);
-        uint32_t queueFamilyIndices[] = { indices.graphicsFamily.value(), indices.presentFamily.value() };
+        uint32_t queueFamilyIndices[] = {indices.graphicsFamily.value(), indices.presentFamily.value()};
         if (indices.graphicsFamily != indices.presentFamily) {
             createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
             createInfo.queueFamilyIndexCount = 2;
@@ -664,7 +662,7 @@ private:
         VkShaderModuleCreateInfo createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
         createInfo.codeSize = code.size();
-        createInfo.pCode = reinterpret_cast<const uint32_t*>(code.data());
+        createInfo.pCode = reinterpret_cast<const uint32_t *>(code.data());
 
         VkShaderModule shaderModule = VK_NULL_HANDLE;
         VK_CHECK(vkCreateShaderModule(m_device, &createInfo, nullptr, &shaderModule));
@@ -697,7 +695,7 @@ private:
         fragStageInfo.module = fragShaderModule;
         fragStageInfo.pName = "main";
 
-        VkPipelineShaderStageCreateInfo shaderStages[] = { vertStageInfo, fragStageInfo };
+        VkPipelineShaderStageCreateInfo shaderStages[] = {vertStageInfo, fragStageInfo};
 
         VkVertexInputBindingDescription bindingDescription = Vertex::getBindingDescription();
         std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions = Vertex::getAttributeDescriptions();
@@ -723,7 +721,7 @@ private:
         viewport.maxDepth = 1.0f;
 
         VkRect2D scissor{};
-        scissor.offset = { 0, 0 };
+        scissor.offset = {0, 0};
         scissor.extent = m_swapChainExtent;
 
         VkPipelineViewportStateCreateInfo viewportState{};
@@ -791,7 +789,7 @@ private:
         pipelineInfo.basePipelineIndex = -1;
 
         VK_CHECK(vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr,
-                                           &m_graphicsPipeline));
+            &m_graphicsPipeline));
 
         vkDestroyShaderModule(m_device, vertShaderModule, nullptr);
         vkDestroyShaderModule(m_device, fragShaderModule, nullptr);
@@ -800,7 +798,7 @@ private:
     void createFramebuffers() {
         m_swapChainFramebuffers.resize(m_swapChainImageViews.size());
         for (size_t i = 0; i < m_swapChainImageViews.size(); i++) {
-            VkImageView attachments[] = { m_swapChainImageViews[i] };
+            VkImageView attachments[] = {m_swapChainImageViews[i]};
 
             VkFramebufferCreateInfo framebufferInfo{};
             framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
@@ -812,7 +810,7 @@ private:
             framebufferInfo.layers = 1;
 
             VK_CHECK(vkCreateFramebuffer(m_device, &framebufferInfo, nullptr,
-                                         &m_swapChainFramebuffers[i]));
+                &m_swapChainFramebuffers[i]));
         }
     }
 
@@ -849,10 +847,10 @@ private:
         renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
         renderPassInfo.renderPass = m_renderPass;
         renderPassInfo.framebuffer = m_swapChainFramebuffers[imageIndex];
-        renderPassInfo.renderArea.offset = { 0, 0 };
+        renderPassInfo.renderArea.offset = {0, 0};
         renderPassInfo.renderArea.extent = m_swapChainExtent;
 
-        VkClearValue clearColor = { { { 0.0f, 0.0f, 0.0f, 1.0f } } };
+        VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
         renderPassInfo.clearValueCount = 1;
         renderPassInfo.pClearValues = &clearColor;
 
@@ -860,8 +858,8 @@ private:
 
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_graphicsPipeline);
 
-        VkBuffer vertexBuffers[] = { m_vertexBuffer };
-        VkDeviceSize offsets[] = { 0 };
+        VkBuffer vertexBuffers[] = {m_vertexBuffer};
+        VkDeviceSize offsets[] = {0};
         vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
 
         vkCmdDraw(commandBuffer, 3, 1, 0, 0);
@@ -909,9 +907,9 @@ private:
 
     void createVertexBuffer() {
         std::vector<Vertex> vertices = {
-            { { 0.0f, -0.5f }, { 1.0f, 0.0f, 0.0f } },
-            { { 0.5f, 0.5f }, { 0.0f, 1.0f, 0.0f } },
-            { { -0.5f, 0.5f }, { 0.0f, 0.0f, 1.0f } },
+            {{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+            {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
+            {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
         };
 
         VkDeviceSize bufferSize = sizeof(Vertex) * vertices.size();
@@ -969,9 +967,9 @@ private:
         vkResetCommandBuffer(m_commandBuffer, 0);
         recordCommandBuffer(m_commandBuffer, imageIndex);
 
-        VkSemaphore waitSemaphores[] = { m_imageAvailableSemaphore };
-        VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-        VkSemaphore signalSemaphores[] = { m_renderFinishedSemaphore };
+        VkSemaphore waitSemaphores[] = {m_imageAvailableSemaphore};
+        VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+        VkSemaphore signalSemaphores[] = {m_renderFinishedSemaphore};
 
         VkSubmitInfo submitInfo{};
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -989,7 +987,7 @@ private:
         presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
         presentInfo.waitSemaphoreCount = 1;
         presentInfo.pWaitSemaphores = signalSemaphores;
-        VkSwapchainKHR swapChains[] = { m_swapChain };
+        VkSwapchainKHR swapChains[] = {m_swapChain};
         presentInfo.swapchainCount = 1;
         presentInfo.pSwapchains = swapChains;
         presentInfo.pImageIndices = &imageIndex;
@@ -1008,13 +1006,13 @@ private:
     // -----------------------------------------------------------------------
 
     void cleanupSwapChain() {
-        for (auto framebuffer : m_swapChainFramebuffers) {
+        for (auto framebuffer: m_swapChainFramebuffers) {
             vkDestroyFramebuffer(m_device, framebuffer, nullptr);
         }
         vkDestroyPipeline(m_device, m_graphicsPipeline, nullptr);
         vkDestroyPipelineLayout(m_device, m_pipelineLayout, nullptr);
         vkDestroyRenderPass(m_device, m_renderPass, nullptr);
-        for (auto imageView : m_swapChainImageViews) {
+        for (auto imageView: m_swapChainImageViews) {
             vkDestroyImageView(m_device, imageView, nullptr);
         }
         vkDestroySwapchainKHR(m_device, m_swapChain, nullptr);
@@ -1040,9 +1038,9 @@ private:
     }
 
     static void framebufferResizeCallback(GLFWwindow* window, int width, int height) {
-        (void)width;
-        (void)height;
-        auto app = reinterpret_cast<VulkanTriangleApp*>(glfwGetWindowUserPointer(window));
+        (void) width;
+        (void) height;
+        auto app = reinterpret_cast<VulkanTriangleApp *>(glfwGetWindowUserPointer(window));
         app->m_framebufferResized = true;
     }
 
@@ -1082,7 +1080,7 @@ private:
 // 入口
 // ---------------------------------------------------------------------------
 
-int main() {
+int Testmain() {
     VulkanTriangleApp app;
     try {
         app.run();

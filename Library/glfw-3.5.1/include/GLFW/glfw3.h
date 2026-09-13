@@ -825,26 +825,22 @@ extern "C" {
  *  updating any existing out parameters.
  */
 #define GLFW_FEATURE_UNIMPLEMENTED  0x0001000D
-/*! @brief Platform unavailable or no matching platform was found.
+/*! @brief 平台不可用，或未找到匹配平台。
  *
- *  If emitted during initialization, no matching platform was found.  If the @ref
- *  GLFW_PLATFORM init hint was set to `GLFW_ANY_PLATFORM`, GLFW could not detect any of
- *  the platforms supported by this library binary, except for the Null platform.  If the
- *  init hint was set to a specific platform, it is either not supported by this library
- *  binary or GLFW was not able to detect it.
+ * 若在初始化阶段触发该错误：未找到匹配的平台。如果 @ref
+ * GLFW_PLATFORM 初始化提示被设置为 `GLFW_ANY_PLATFORM`，说明 GLFW
+ * 无法检测到此库二进制文件所支持的任何平台（Null空平台除外）。如果该
+ * 初始化提示指定了某个具体平台，则要么此库二进制不支持该平台，要么
+ * GLFW 无法识别到该平台。
  *
- *  If emitted by a native access function, GLFW was initialized for a different platform
- *  than the function is for.
+ * 若由原生访问函数触发该错误：GLFW 当前初始化所用平台，与该函数对应的平台不一致。
  *
- *  @analysis Failure to detect any platform usually only happens on non-macOS Unix
- *  systems, either when no window system is running or the program was run from
- *  a terminal that does not have the necessary environment variables.  Fall back to
- *  a different platform if possible or notify the user that no usable platform was
- *  detected.
+ *  @analysis 无法检测到任何平台的情况，通常仅出现在非macOS的Unix系统上：
+ * 可能是没有运行窗口系统，或是程序在缺少必要环境变量的终端中启动。
+ * 如有条件，可尝试切换到其他平台；或告知用户未检测到可用平台。
  *
- *  Failure to detect a specific platform may have the same cause as above or be because
- *  support for that platform was not compiled in.  Call @ref glfwPlatformSupported to
- *  check whether a specific platform is supported by a library binary.
+ * 无法检测到指定平台，原因可能同上，也可能是编译库时未开启该平台的支持。
+ * 可调用 @ref glfwPlatformSupported 来检查当前库二进制是否支持某个指定平台。
  */
 #define GLFW_PLATFORM_UNAVAILABLE   0x0001000E
 /*! @} */
@@ -1023,10 +1019,10 @@ extern "C" {
  */
 #define GLFW_DOUBLEBUFFER           0x00021010
 
-/*! @brief Context client API hint and attribute.
+/*! @brief 上下文客户端API提示与属性。
  *
- *  Context client API [hint](@ref GLFW_CLIENT_API_hint) and
- *  [attribute](@ref GLFW_CLIENT_API_attrib).
+ * 上下文客户端API [提示](@ref GLFW_CLIENT_API_hint) 和
+ * [属性](@ref GLFW_CLIENT_API_attrib)。
  */
 #define GLFW_CLIENT_API             0x00022001
 /*! @brief Context client API major version hint and attribute.
