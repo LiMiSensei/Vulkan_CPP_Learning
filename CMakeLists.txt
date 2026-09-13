@@ -27,6 +27,7 @@ set(IMGUI_SOURCES
         ${IMGUI_DIR}/imgui_widgets.cpp
         ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
         ${IMGUI_DIR}/backends/imgui_impl_vulkan.cpp
+
 )
 
 
@@ -35,7 +36,9 @@ add_executable(Vulkan_CPP_Learning
         ${IMGUI_SOURCES}
         main.cpp
         Test/test1.cpp
-        )
+        Header/VulkanRenderer.cpp
+        Header/VulkanRenderer.h
+)
 
 #编译器
 target_include_directories(Vulkan_CPP_Learning PRIVATE ${IMGUI_DIR} ${IMGUI_DIR}/backends ${VULKAN_SDK}/Include)
