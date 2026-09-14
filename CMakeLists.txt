@@ -16,7 +16,6 @@ add_subdirectory(Library/glm-1.0.3)
 find_package(Vulkan REQUIRED)
 
 
-
 # 宏 设置imgui相关文件
 set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/Library/imgui-1.92.9b)
 set(IMGUI_SOURCES
@@ -27,7 +26,7 @@ set(IMGUI_SOURCES
         ${IMGUI_DIR}/imgui_widgets.cpp
         ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
         ${IMGUI_DIR}/backends/imgui_impl_vulkan.cpp
-
+        
 )
 
 
@@ -38,6 +37,8 @@ add_executable(Vulkan_CPP_Learning
         Test/test1.cpp
         Header/VulkanRenderer.cpp
         Header/VulkanRenderer.h
+        Header/Utilities.cpp
+        Header/Utilities.h
 )
 
 #编译器
@@ -54,9 +55,6 @@ if (WIN32)
 endif ()
 
 
-
-
-
 #if (MSVC)
 #    # 源码为 UTF-8（无 BOM），按 UTF-8 读取，避免中文注释触发 C4819 警告
 #    target_compile_options(${PROJECT_NAME} PRIVATE /utf-8)
@@ -68,28 +66,12 @@ endif ()
 #endif ()
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # 设置某些禁用
 # set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 # set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 # set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
 # set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
 # set(GLM_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-
 
 
 # ---------------------------------------------------------------------------

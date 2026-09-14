@@ -11,8 +11,8 @@ int VulkanRenderer::init(GLFWwindow* window) {
     this->window = window;
 
     try {
-        createInstance();//执行实例化Vulkan函数
-        getPhysicalDevice();//获取GPU
+        createInstance(); //执行实例化Vulkan函数
+        getPhysicalDevice(); //获取GPU
     } catch (const std::runtime_error& e) {
         printf("ERROR: %s\n", e.what());
         return EXIT_FAILURE;
@@ -28,11 +28,20 @@ void VulkanRenderer::cleanup() {
 VulkanRenderer::~VulkanRenderer() {
     //枚举vklnstance可以访问的物理设备
     uint32_t deviceCount = 0;
-    vkEnumeratePhysicalDevices(instance, &deviceCount,nullptr);
+    vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
+
+    //如果没有可用设备，则不支持Vulkan！
+    if (deviceCount == 0) {
+        throw std::runtime_error("No Vulkan instance");
+    }
 
     //获取物理设备列表
     std::vector<VkPhysicalDevice> devicesList(deviceCount);
     vkEnumeratePhysicalDevices(instance, &deviceCount, devicesList.data());
+
+
+    //临时：先选择第一个设备
+    mainDevice.physicalDevice = devicesList[0];
 }
 
 void VulkanRenderer::createInstance() {
@@ -70,7 +79,8 @@ void VulkanRenderer::createInstance() {
     }
 
     //检查实例扩展支持
-    if (!checkInstanceExtensionSupport(&instanceExtensions)) {//内部函数
+    if (!checkInstanceExtensionSupport(&instanceExtensions)) {
+        //内部函数
         throw std::runtime_error("VkInstance does not support required extensions!");
     }
 
@@ -90,7 +100,6 @@ void VulkanRenderer::createInstance() {
 }
 
 void VulkanRenderer::getPhysicalDevice() {
-
 }
 
 bool VulkanRenderer::checkInstanceExtensionSupport(std::vector<const char *>* checkExtensions) {
@@ -115,5 +124,17 @@ bool VulkanRenderer::checkInstanceExtensionSupport(std::vector<const char *>* ch
             return false;
         }
     }
+    return true;
+}
+
+bool VulkanRenderer::checkDeviceSuitable(VkPhysicalDevice device) {
+    /*// 关于设备本身的详细信息（ID、名称、类型、厂商等）
+    VkPhysicalDeviceProperties deviceProperties;
+    vkGetPhysicalDeviceProperties(device, &deviceProperties);
+
+    // 关于设备功能的信息（如几何着色器、细分着色器、粗线等）
+    VkPhysicalDeviceFeatures deviceFeatures;
+    vkGetPhysicalDeviceFeatures(device, &deviceFeatures);*/
+
     return true;
 }

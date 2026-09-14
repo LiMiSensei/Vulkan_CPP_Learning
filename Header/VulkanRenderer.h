@@ -34,6 +34,7 @@ private:
     void getPhysicalDevice();
     //-检查拓展
     bool checkInstanceExtensionSupport(std::vector<const char*>* checkExtensions);
+    bool checkDeviceSuitable(VkPhysicalDevice device);
 };
 
 
