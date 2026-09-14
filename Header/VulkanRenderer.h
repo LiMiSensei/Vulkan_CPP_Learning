@@ -14,10 +14,26 @@ class VulkanRenderer {
 public:
     VulkanRenderer();
     int init(GLFWwindow* window);
+    void cleanup();
     ~VulkanRenderer();
 
 private:
     GLFWwindow* window;
+    //Vulkan组件
+    VkInstance instance;
+    struct {
+        VkPhysicalDevice physicalDevice;//代表主设备
+        VkDevice device;
+    } mainDevice;
+
+
+    //Vulkan函数：
+    //-创建函数
+    void createInstance();
+    //-获取函数
+    void getPhysicalDevice();
+    //-检查拓展
+    bool checkInstanceExtensionSupport(std::vector<const char*>* checkExtensions);
 };
 
 

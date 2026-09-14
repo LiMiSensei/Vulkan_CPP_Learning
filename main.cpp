@@ -28,7 +28,9 @@ int main() {
     initWindow();
 
     //创建Vulkan渲染器实例
-    renderer.init(window);
+    if (renderer.init(window)== EXIT_FAILURE) {
+        return EXIT_FAILURE;
+    }
 
     //循环直到关闭
     while (!glfwWindowShouldClose(window)) {
@@ -36,6 +38,7 @@ int main() {
 
     }
 
+    renderer.cleanup();
     //销毁GLFW窗口并停止GLFW
     glfwDestroyWindow(window);
     glfwTerminate();
