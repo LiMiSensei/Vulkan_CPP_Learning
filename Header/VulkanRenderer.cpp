@@ -11,10 +11,13 @@ int VulkanRenderer::init(GLFWwindow* window) {
     this->window = window;
 
     try {
-        createInstance(); //执行实例化Vulkan函数
-        getPhysicalDevice(); //获取GPU
+        createInstance_1(); //执行实例化Vulkan函数
+        createDebugCallback_(); //
+        createSurface_2(); //
+        getPhysicalDevice_2(); //获取物理设备
+        createLogicalDevice_3(); //创建逻辑设备
     } catch (const std::runtime_error& e) {
-        printf("ERROR: %s\n", e.what());
+        printf("ERROR==: %s\n", e.what());
         return EXIT_FAILURE;
     }
 
@@ -22,29 +25,19 @@ int VulkanRenderer::init(GLFWwindow* window) {
 }
 
 void VulkanRenderer::cleanup() {
+    vkDestroySurfaceKHR(instance, surface, nullptr);
+    vkDestroyDevice(mainDevice.logicalDevice, nullptr);
+    /*if (validationEnabled) {
+        DestroyDebugReportCallbackEXT(instance, debugCallback, nullptr);
+    }*/
     vkDestroyInstance(instance, nullptr);
 }
 
 VulkanRenderer::~VulkanRenderer() {
-    //枚举vklnstance可以访问的物理设备
-    uint32_t deviceCount = 0;
-    vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
-
-    //如果没有可用设备，则不支持Vulkan！
-    if (deviceCount == 0) {
-        throw std::runtime_error("No Vulkan instance");
-    }
-
-    //获取物理设备列表
-    std::vector<VkPhysicalDevice> devicesList(deviceCount);
-    vkEnumeratePhysicalDevices(instance, &deviceCount, devicesList.data());
-
-
-    //临时：先选择第一个设备
-    mainDevice.physicalDevice = devicesList[0];
 }
 
-void VulkanRenderer::createInstance() {
+//1-创建实例
+void VulkanRenderer::createInstance_1() {
     //关于应用程序本身的说明
     //此处的大部分数据不影响程序运行，仅用于开发人员方便。
     VkApplicationInfo appInfo = {};
@@ -79,7 +72,7 @@ void VulkanRenderer::createInstance() {
     }
 
     //检查实例扩展支持
-    if (!checkInstanceExtensionSupport(&instanceExtensions)) {
+    if (!checkInstanceExtensionSupport_(&instanceExtensions)) {
         //内部函数
         throw std::runtime_error("VkInstance does not support required extensions!");
     }
@@ -99,10 +92,82 @@ void VulkanRenderer::createInstance() {
     }
 }
 
-void VulkanRenderer::getPhysicalDevice() {
+void VulkanRenderer::createDebugCallback_() {
 }
 
-bool VulkanRenderer::checkInstanceExtensionSupport(std::vector<const char *>* checkExtensions) {
+
+//3-创建逻辑设备
+void VulkanRenderer::createLogicalDevice_3() {
+    //获取所选物理设备的队列家族索引
+    QueueFamilyIndices_ indices = getQueueFamilies_(mainDevice.physicalDevice);
+
+    // Vector for queue creation information, and set for family indices
+    std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+    std::set<int> queueFamilyIndices = {indices.graphicsFamily, indices.presentFamily};
+
+    //队列逻辑设备需要创建的信息（目前仅支持一个，后续将增加更多！）
+    for (int queueFamily: queueFamilyIndices) {
+        VkDeviceQueueCreateInfo queueCreateInfo = {};
+        queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queueCreateInfo.queueFamilyIndex = queueFamily; //用于创建队列的家族索引
+        queueCreateInfo.queueCount = 1; //要创建的队列数量
+        float priority = 1.0f;
+        queueCreateInfo.pQueuePriorities = &priority; //Vulkan需要知道如何处理多个队列
+
+        queueCreateInfos.push_back(queueCreateInfo);
+    }
+    //逻辑设备将使用的物理设备特性
+    VkPhysicalDeviceFeatures deviceFeatures = {}; //物理设备功能逻辑设备将使用
+
+    //创建逻辑设备的信息（有时称为“设备”）
+    VkDeviceCreateInfo deviceCreateInfo = {};
+    deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    deviceCreateInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size()); //队列创建信息数量
+    deviceCreateInfo.pQueueCreateInfos = queueCreateInfos.data(); //队列创建信息列表，以便设备可以创建所需的队列
+    deviceCreateInfo.queueCreateInfoCount = 0; //已启用的逻辑设备扩展数量
+    deviceCreateInfo.enabledLayerCount = static_cast<uint32_t>(deviceExtensions.size());
+    deviceCreateInfo.ppEnabledExtensionNames = deviceExtensions.data(); //已启用的逻辑设备扩展列表
+    deviceCreateInfo.pEnabledFeatures = &deviceFeatures;
+
+    //为给定的物理设备创建逻辑设备
+    VkResult result = vkCreateDevice(mainDevice.physicalDevice, &deviceCreateInfo, nullptr, &mainDevice.logicalDevice);
+    if (result != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create logical device!");
+    }
+    //队列与设备同时创建  因此我们希望处理队列。
+    vkGetDeviceQueue(mainDevice.logicalDevice, indices.graphicsFamily, 0, &graphicsQueue);
+    vkGetDeviceQueue(mainDevice.logicalDevice, indices.presentFamily, 0, &presentationQueue);
+}
+
+void VulkanRenderer::createSurface_2() {
+    VkResult result = glfwCreateWindowSurface(instance, window, nullptr, &surface);
+    if (result != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create window surface!");
+    }
+}
+
+
+//2-获取物理设备
+void VulkanRenderer::getPhysicalDevice_2() {
+    uint32_t deviceCount = 0;
+    vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
+    if (deviceCount == 0) {
+        throw std::runtime_error("No Vulkan instance");
+    }
+    std::vector<VkPhysicalDevice> devicesList(deviceCount);
+    vkEnumeratePhysicalDevices(instance, &deviceCount, devicesList.data());
+
+
+    for (const auto& device: devicesList) {
+        if (checkDeviceSuitable_(device)) {
+            mainDevice.physicalDevice = device;
+            break;
+        }
+    }
+}
+
+//检查实例拓展
+bool VulkanRenderer::checkInstanceExtensionSupport_(std::vector<const char *>* checkExtensions) {
     //需要获取扩展数量以创建正确大小的数组来存储扩展。
     uint32_t extensionCount = 0;
     vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
@@ -127,7 +192,42 @@ bool VulkanRenderer::checkInstanceExtensionSupport(std::vector<const char *>* ch
     return true;
 }
 
-bool VulkanRenderer::checkDeviceSuitable(VkPhysicalDevice device) {
+bool VulkanRenderer::checkDeviceExtensionSupport_(VkPhysicalDevice device) {
+    //获取设备扩展数量
+    uint32_t extensionCount = 0;
+    vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr);
+    //如果未找到扩展，返回失败
+    if (extensionCount == 0) {
+        return false;
+    }
+    //填充扩展列表
+    std::vector<VkExtensionProperties> extensions(extensionCount);
+    vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, extensions.data());
+
+    //检查扩展程序
+    for (const auto& deviceExtension: deviceExtensions) {
+        bool hasExtension = false;
+        for (const auto& extension: extensions) {
+            if (strcmp(deviceExtension, extension.extensionName) == 0) {
+                hasExtension = true;
+                break;
+            }
+        }
+        if (!hasExtension) {
+            return false;
+        }
+    }
+    return true;
+
+    return true;
+}
+
+bool VulkanRenderer::checkValidationLayerSupport() {
+    return true;
+}
+
+//检查合格设备
+bool VulkanRenderer::checkDeviceSuitable_(VkPhysicalDevice device) {
     /*// 关于设备本身的详细信息（ID、名称、类型、厂商等）
     VkPhysicalDeviceProperties deviceProperties;
     vkGetPhysicalDeviceProperties(device, &deviceProperties);
@@ -135,6 +235,43 @@ bool VulkanRenderer::checkDeviceSuitable(VkPhysicalDevice device) {
     // 关于设备功能的信息（如几何着色器、细分着色器、粗线等）
     VkPhysicalDeviceFeatures deviceFeatures;
     vkGetPhysicalDeviceFeatures(device, &deviceFeatures);*/
+    QueueFamilyIndices_ indices = getQueueFamilies_(device);
+    bool extensionsSupported = checkDeviceExtensionSupport_(device);
 
-    return true;
+    return indices.isVlid() && extensionsSupported;
+}
+
+//获取队列家族 （检查合格设备，）
+QueueFamilyIndices_ VulkanRenderer::getQueueFamilies_(VkPhysicalDevice device) {
+    QueueFamilyIndices_ indices;
+
+    //获取指定设备的所有队列家族属性信息
+    uint32_t queueFamilyCount = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
+
+    std::vector<VkQueueFamilyProperties> queueFamilyList(queueFamilyCount);
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilyList.data());
+
+    //遍历每个队列家族，检查其是否至少包含所需类型的队列之一
+    int i = 0;
+    for (const auto& queueFamily: queueFamilyList) {
+        //首先检查队列家族是否至少包含一个队列（可能没有队列)
+        if (queueFamily.queueCount > 0 && queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+            indices.graphicsFamily = i; // 如果队列家族有效，则获取索引
+        }
+        //检查队列家族是否支持呈现
+        VkBool32 presentFamily = false;
+        vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentFamily);
+        //检查队列是否为演示类型【（可以是图形和演示的组合）
+        if (queueFamily.queueCount > 0 && presentFamily) {
+            indices.presentFamily = i;
+        }
+        //检查队列家族索引是否处于有效状态，如果是则停止搜索
+        if (indices.isVlid()) {
+            mainDevice.physicalDevice = device;
+            break;
+        }
+        i++;
+    }
+    return indices;
 }
