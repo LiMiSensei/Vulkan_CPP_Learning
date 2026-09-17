@@ -6,16 +6,23 @@
 #define VULKAN_CPP_LEARNING_VULKANRENDERER_H
 
 
-#define VK_USE_PLATFORM_WIN32_KHR
+// windows.h 会定义 min/max 宏，破坏 std::numeric_limits<T>::max() 等写法，需在包含前屏蔽
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 
-//#include <windows.h>
-//#include "vulkan_win32.h"
+#define VK_USE_PLATFORM_WIN32_KHR //#include <windows.h> //#include "vulkan_win32.h"
+
+
+
 
 #include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
 #include <stdexcept>
 #include <vector>
 #include <set>
+#include <algorithm>
+
 
 #include "Utilities.h"
 
@@ -32,10 +39,10 @@ public:
 private:
     GLFWwindow* window;
     //Vulkan组件
+    // - Main
     VkInstance instance;
     VkDebugReportCallbackEXT debugCallback;
-    //代表主设备
-    struct {
+    struct {//代表主设备
         VkPhysicalDevice physicalDevice;
         VkDevice logicalDevice;
     } mainDevice;
@@ -43,24 +50,36 @@ private:
     VkQueue graphicsQueue;
     VkQueue presentationQueue;
     VkSurfaceKHR surface;
+    VkSwapchainKHR swapchain;
+    std::vector<SwapchainImage_u> swapChainImages;
+    // - Utility
+    VkFormat swapChainImageFormat;
+    VkExtent2D swapChainExtent;
+
 
     //Vulkan函数：
     void createInstance_1();//-创建函数
-    void createDebugCallback_();
-    void createLogicalDevice_3();//-创建逻辑设备
-    void createSurface_2();
+    void createDebugCallback_2();
+    void createSurface_3();
+    void createLogicalDevice_5();//-创建逻辑设备
+    void createSwapChain_6();
 
-    //获取函数：
-    void getPhysicalDevice_2();
 
-    //检查拓展：
-    bool checkInstanceExtensionSupport_(std::vector<const char *>* checkExtensions);//-检查设备拓展
-    bool checkDeviceExtensionSupport_(VkPhysicalDevice device);
+    //--检查拓展：
+    bool checkInstanceExtensionSupport_1_(std::vector<const char *>* checkExtensions);//-检查设备拓展
+    bool checkDeviceExtensionSupport_A_(VkPhysicalDevice device);
     bool checkValidationLayerSupport();
-    bool checkDeviceSuitable_(VkPhysicalDevice device);//-检查设备
+    bool checkDeviceSuitable_4_A(VkPhysicalDevice device);//-检查设备
 
-    //获取函数：
-    QueueFamilyIndices_ getQueueFamilies_(VkPhysicalDevice device);
+    //--获取函数：
+    void getPhysicalDevice_4();
+    QueueFamilyIndices_u getQueueFamilies_56A_(VkPhysicalDevice device);
+    SwapChainDetails_u getSwapChainDetails_A6(VkPhysicalDevice device);
+
+    //--选择函数
+    VkSurfaceFormatKHR chooseBestSurfaceFormat(const std::vector<VkSurfaceFormatKHR> &formats);
+    VkPresentModeKHR chooseBestPresentationMode(const std::vector<VkPresentModeKHR> presentationModes);
+    VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities);
 };
 
 

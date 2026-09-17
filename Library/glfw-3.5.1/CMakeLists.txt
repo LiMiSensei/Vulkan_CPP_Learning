@@ -101,7 +101,7 @@ if (GLFW_BUILD_TESTS)
 endif()
 
 if (GLFW_BUILD_DOCS)
-    add_subdirectory(docs)
+   # add_subdirectory(docs)
 endif()
 
 #--------------------------------------------------------------------

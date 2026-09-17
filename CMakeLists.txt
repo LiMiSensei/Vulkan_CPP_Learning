@@ -34,7 +34,7 @@ set(IMGUI_SOURCES
 add_executable(Vulkan_CPP_Learning
         ${IMGUI_SOURCES}
         main.cpp
-        Test/test1.cpp
+        #Test/test1.cpp
         Header/VulkanRenderer.cpp
         Header/VulkanRenderer.h
         Header/Utilities.cpp
