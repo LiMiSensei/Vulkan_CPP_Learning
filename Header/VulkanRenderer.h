@@ -52,6 +52,10 @@ private:
     VkSurfaceKHR surface;
     VkSwapchainKHR swapchain;
     std::vector<SwapchainImage_u> swapChainImages;
+    // - Pipekine
+    VkPipelineLayout pipelineLayout;
+
+
     // - Utility
     VkFormat swapChainImageFormat;
     VkExtent2D swapChainExtent;
@@ -63,7 +67,8 @@ private:
     void createSurface_3();
     void createLogicalDevice_5();//-创建逻辑设备
     void createSwapChain_6();
-
+    void createRenderPass();//-创建渲染Pass
+    void createGraphicsPipeline();//-创建图形管线
 
     //--检查拓展：
     bool checkInstanceExtensionSupport_1_(std::vector<const char *>* checkExtensions);//-检查设备拓展
@@ -80,6 +85,10 @@ private:
     VkSurfaceFormatKHR chooseBestSurfaceFormat(const std::vector<VkSurfaceFormatKHR> &formats);
     VkPresentModeKHR chooseBestPresentationMode(const std::vector<VkPresentModeKHR> presentationModes);
     VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities);
+
+    //创建函数
+    VkImageView createImageView(VkImage image,VkFormat format,VkImageAspectFlags aspectFlags);
+    VkShaderModule createShaderModule(const std::vector<char> &code);
 };
 
 

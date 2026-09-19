@@ -55,6 +55,20 @@ if (WIN32)
 endif ()
 
 
+# ---------------------------------------------------------------------------
+# POST_BUILD：把 shaders 目录结构复制到 exe 旁边
+#   目标为 <exe目录>/shaders/vert.spv 与 <exe目录>/shaders/frag.spv
+# ---------------------------------------------------------------------------
+add_custom_command(TARGET Vulkan_CPP_Learning POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:Vulkan_CPP_Learning>/shaders
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${CMAKE_SOURCE_DIR}/shaders/vert.spv
+                ${CMAKE_SOURCE_DIR}/shaders/frag.spv
+                $<TARGET_FILE_DIR:Vulkan_CPP_Learning>/shaders
+        COMMENT "Copying shaders (vert.spv, frag.spv) next to executable"
+)
+
+
 #if (MSVC)
 #    # 源码为 UTF-8（无 BOM），按 UTF-8 读取，避免中文注释触发 C4819 警告
 #    target_compile_options(${PROJECT_NAME} PRIVATE /utf-8)
