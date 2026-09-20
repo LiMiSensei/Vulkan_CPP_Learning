@@ -38,7 +38,7 @@ public:
 
 private:
     GLFWwindow* window;
-    //Vulkan组件
+
     // - Main
     VkInstance instance;
     VkDebugReportCallbackEXT debugCallback;
@@ -50,31 +50,34 @@ private:
     VkQueue graphicsQueue;
     VkQueue presentationQueue;
     VkSurfaceKHR surface;
-    VkSwapchainKHR swapchain;
+    // - 交换链
+    VkSwapchainKHR swapchain;                     
     std::vector<SwapchainImage_u> swapChainImages;
-    // - Pipekine
-    VkPipelineLayout pipelineLayout;
 
+    // - Pipekine
+    VkPipeline graphicsPipeline;
+    VkPipelineLayout pipelineLayout;
+    VkRenderPass renderPass;
 
     // - Utility
     VkFormat swapChainImageFormat;
     VkExtent2D swapChainExtent;
 
 
-    //Vulkan函数：
-    void createInstance_1();//-创建函数
+    //--Vulkan函数：
+    void createInstance_1();        //-创建函数
     void createDebugCallback_2();
-    void createSurface_3();
-    void createLogicalDevice_5();//-创建逻辑设备
-    void createSwapChain_6();
-    void createRenderPass();//-创建渲染Pass
-    void createGraphicsPipeline();//-创建图形管线
+    void createSurface_3();         //-创建表面
+    void createLogicalDevice_5();   //-创建逻辑设备
+    void createSwapChain_6();       //-创建交换链
+    void createRenderPass_7();      //-创建Pass
+    void createGraphicsPipeline_8();//-创建图形管线
 
     //--检查拓展：
-    bool checkInstanceExtensionSupport_1_(std::vector<const char *>* checkExtensions);//-检查设备拓展
-    bool checkDeviceExtensionSupport_A_(VkPhysicalDevice device);
+    bool checkInstanceExtensionSupport_1_(std::vector<const char *>* checkExtensions);  //-检查实例拓展
+    bool checkDeviceExtensionSupport_A_(VkPhysicalDevice device);                       // 检查设备拓展
     bool checkValidationLayerSupport();
-    bool checkDeviceSuitable_4_A(VkPhysicalDevice device);//-检查设备
+    bool checkDeviceSuitable_4_A(VkPhysicalDevice device);                              //-检查设备合适
 
     //--获取函数：
     void getPhysicalDevice_4();
@@ -86,7 +89,7 @@ private:
     VkPresentModeKHR chooseBestPresentationMode(const std::vector<VkPresentModeKHR> presentationModes);
     VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities);
 
-    //创建函数
+    //--创建函数
     VkImageView createImageView(VkImage image,VkFormat format,VkImageAspectFlags aspectFlags);
     VkShaderModule createShaderModule(const std::vector<char> &code);
 };

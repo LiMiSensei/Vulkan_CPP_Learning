@@ -3,7 +3,7 @@
 //
 
 #include "VulkanRenderer.h"
-
+#include <array>
 #include <limits>
 
 VulkanRenderer::VulkanRenderer()
@@ -22,8 +22,8 @@ int VulkanRenderer::init(GLFWwindow* window)
         getPhysicalDevice_4();      //获取物理设备
         createLogicalDevice_5();    //创建逻辑设备
         createSwapChain_6();        //创建交换链
-        createRenderPass();
-        createGraphicsPipeline();   //创建图形管线
+        createRenderPass_7();         //创建Pass
+        createGraphicsPipeline_8();   //创建图形管线
     }
     catch (const std::runtime_error& e)
     {
@@ -36,7 +36,9 @@ int VulkanRenderer::init(GLFWwindow* window)
 
 void VulkanRenderer::cleanup()
 {
+    vkDestroyPipeline(mainDevice.logicalDevice, graphicsPipeline,nullptr);
     vkDestroyPipelineLayout(mainDevice.logicalDevice,pipelineLayout, nullptr);
+    vkDestroyRenderPass(mainDevice.logicalDevice,renderPass,nullptr);
     for (auto image :swapChainImages)
     {
         vkDestroyImageView(mainDevice.logicalDevice,image.imageView,nullptr);
@@ -117,18 +119,28 @@ void VulkanRenderer::createInstance_1()
     }
 }
 
+//2-
 void VulkanRenderer::createDebugCallback_2()
 {
 }
 
+//3-创建表面
+void VulkanRenderer::createSurface_3()
+{
+    VkResult result = glfwCreateWindowSurface(instance, window, nullptr, &surface);
+    if (result != VK_SUCCESS)
+    {
+        throw std::runtime_error("Failed to create window surface!");
+    }
+}
 
-//3-创建逻辑设备
+//5-创建逻辑设备
 void VulkanRenderer::createLogicalDevice_5()
 {
     //获取所选物理设备的队列家族索引
     QueueFamilyIndices_u indices = getQueueFamilies_56A_(mainDevice.physicalDevice);
 
-    // Vector for queue creation information, and set for family indices
+    // 用于队列创建信息的向量，以及用于家族索引的设置
     std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
     std::set<int> queueFamilyIndices = {indices.graphicsFamily, indices.presentFamily};
 
@@ -167,17 +179,7 @@ void VulkanRenderer::createLogicalDevice_5()
     vkGetDeviceQueue(mainDevice.logicalDevice, indices.presentFamily, 0, &presentationQueue);
 }
 
-//创建表面
-void VulkanRenderer::createSurface_3()
-{
-    VkResult result = glfwCreateWindowSurface(instance, window, nullptr, &surface);
-    if (result != VK_SUCCESS)
-    {
-        throw std::runtime_error("Failed to create window surface!");
-    }
-}
-
-//创建交换链
+//6-创建交换链
 void VulkanRenderer::createSwapChain_6()
 {
     //获取交换链详细信息，以便我们选择最佳设置
@@ -269,14 +271,75 @@ void VulkanRenderer::createSwapChain_6()
 
 }
 
-void VulkanRenderer::createRenderPass()
+//7-创建渲染Pass
+void VulkanRenderer::createRenderPass_7()
 {
-    VkRenderPassCreateInfo renderPassCreateInfo = {}:
+    // Colour attachment of render pass
+    VkAttachmentDescription colourAttachment = {};
+    colourAttachment.format =swapChainImageFormat;                      // 用于附件的格式
+    colourAttachment.samples =VK_SAMPLE_COUNT_1_BIT;                    // 多采样时要写入的样本数量
+    colourAttachment.loadOp =VK_ATTACHMENT_LOAD_OP_CLEAR;               // 描述渲染前对附件的操作
+    colourAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;            // 描述渲染后对附件的操作
+    colourAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;   // 描述渲染前对描边的处理
+    colourAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE; // 描述渲染后对描边的处理
+
+    // 帧缓冲区数据将以图像形式存储，但图像可以采用不同的数据布局，以实现特定操作的最优利用。
+    colourAttachment.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED;           // Image data layout before render pass starts
+    colourAttachment.finalLayout =VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;      // Image data layout after render pass (to change to)
+
+
+    // 附件引用使用一个附件索引，该索引指向传递给 renderPassCreateInfo 的附件列表中的索引。
+    VkAttachmentReference colourAttachmentReference ={};
+    colourAttachmentReference.attachment =0;
+    colourAttachmentReference.layout =VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    // 关于渲染通道所使用的特定子通道的信息
+    VkSubpassDescription subpass ={};
+    subpass.pipelineBindPoint =VK_PIPELINE_BIND_POINT_GRAPHICS;// Pipeline type subpass is to be bound to
+    subpass.colorAttachmentCount =1;
+    subpass.pColorAttachments = &colourAttachmentReference;
+
+    // 需要通过子通道依赖来确定布局过渡发生的时间
+    std::array<VkSubpassDependency,2> subpassDependencies;
+
+    // 从 VK_IMAGE_LAYOUT_UNDEFINED 转换为 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+    subpassDependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+    subpassDependencies[0].srcStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+    subpassDependencies[0].srcAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+    subpassDependencies[0].dstSubpass = 0;
+    subpassDependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    subpassDependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    subpassDependencies[0].dependencyFlags = 0;
+    // 从 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL 到 VK_IMAGE_LAYOUT_PRESENT_SRC_KHR 的转换
+    // 转换必须在……之后进行
+    subpassDependencies[1].srcSubpass = 0;
+    subpassDependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    subpassDependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;;
+    // But must happen before...
+    subpassDependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+    subpassDependencies[1].dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+    subpassDependencies[1].dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+    subpassDependencies[0].dependencyFlags = 0;
+
+    VkRenderPassCreateInfo renderPassCreateInfo = {};
     renderPassCreateInfo.sType =VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    renderPassCreateInfo.attachmentCount = 1;
+    renderPassCreateInfo.pAttachments = &colourAttachment;
+    renderPassCreateInfo.subpassCount =1;
+    renderPassCreateInfo.pSubpasses = &subpass;
+    renderPassCreateInfo.dependencyCount =static_cast<uint32_t>(subpassDependencies.size());
+    renderPassCreateInfo.pDependencies = subpassDependencies.data();
+
+    VkResult result = vkCreateRenderPass(mainDevice.logicalDevice, &renderPassCreateInfo,nullptr,&renderPass);
+    if (result != VK_SUCCESS)
+    {
+        throw std::runtime_error("Failed to create a Render Pass!");
+    }
+
 }
 
-//-创建图形管线
-void VulkanRenderer::createGraphicsPipeline()
+//8-创建图形管线
+void VulkanRenderer::createGraphicsPipeline_8()
 {
     // 读取着色器的SPIR-V代码
     auto vertexShaderCode = readFile_u("shaders/vert.spv");
@@ -414,6 +477,38 @@ void VulkanRenderer::createGraphicsPipeline()
     {
         throw std::runtime_error("Failed to create Pipeline Layout!");
     }
+
+
+
+
+    // -- GRAPHICSPIPELINE CREATION --
+    VkGraphicsPipelineCreateInfo pipelineCreateInfo = {};
+    pipelineCreateInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineCreateInfo.stageCount = 2;
+    pipelineCreateInfo.pStages =shaderStages;
+    pipelineCreateInfo.pVertexInputState =&vertexInputCreateInfo;
+    pipelineCreateInfo.pInputAssemblyState = &inputAssembly;
+    pipelineCreateInfo.pViewportState =&viewportStateCreateInfo;
+    pipelineCreateInfo.pDynamicState =nullptr;
+    pipelineCreateInfo.pRasterizationState =&rasterizerCreateInfo;
+    pipelineCreateInfo.pMultisampleState =&multisamplingCreateInfo;
+    pipelineCreateInfo.pColorBlendState =&colourBlendingCreateInfo;
+    pipelineCreateInfo.pDepthStencilState =nullptr;
+    pipelineCreateInfo.layout =pipelineLayout;
+    pipelineCreateInfo.renderPass =renderPass;
+    pipelineCreateInfo.subpass = 0;
+
+    pipelineCreateInfo.basePipelineHandle =VK_NULL_HANDLE;
+    pipelineCreateInfo.basePipelineIndex =-1;
+
+
+    // Create Graphics Pipeline
+    result =vkCreateGraphicsPipelines(mainDevice.logicalDevice,VK_NULL_HANDLE,1,&pipelineCreateInfo,nullptr,&graphicsPipeline);
+    if (result !=VK_SUCCESS)
+    {
+        throw std::runtime_error("Failed to create a Graphics Pipeline!");
+    }
+
     // CREATE PIPELINE
     // 销毁着色器模块，管道创建后不再需要
     vkDestroyShaderModule(mainDevice.logicalDevice,fragmentShaderModule,nullptr);

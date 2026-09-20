@@ -26,7 +26,7 @@ struct QueueFamilyIndices_u {
 };
 
 struct SwapChainDetails_u {
-    VkSurfaceCapabilitiesKHR surfaceCapabilities;         //表面属性，例如图像尺寸/范围
+    VkSurfaceCapabilitiesKHR surfaceCapabilities;       //表面属性，例如图像尺寸/范围
     std::vector<VkSurfaceFormatKHR> formats;            //表面图像格式，例如RGB和每种颜色的大小
     std::vector<VkPresentModeKHR> presentModes;         //图像应如何呈现到屏幕上
 };
