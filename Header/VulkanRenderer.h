@@ -31,7 +31,7 @@ public:
     VulkanRenderer();
 
     int init(GLFWwindow* window);
-
+    void deaw();
     void cleanup();
 
     ~VulkanRenderer();
@@ -39,21 +39,34 @@ public:
 private:
     GLFWwindow* window;
 
-    // - Main
+    // - 实例化Vulkan
     VkInstance instance;
     VkDebugReportCallbackEXT debugCallback;
+
     struct {//代表主设备
         VkPhysicalDevice physicalDevice;
         VkDevice logicalDevice;
     } mainDevice;
 
-    VkQueue graphicsQueue;
-    VkQueue presentationQueue;
+    // - 创建逻辑设备
+    VkQueue graphicsQueue;      //-创建逻辑设备
+    VkQueue presentationQueue;  //-创建逻辑设备
+
+    // - 创建表面
     VkSurfaceKHR surface;
+
     // - 交换链
     VkSwapchainKHR swapchain;                     
     std::vector<SwapchainImage_u> swapChainImages;
 
+    // - 帧缓存与命令缓冲
+    VkCommandPool graphicsCommandPool;
+    std::vector<VkFramebuffer> swapChainFramebuffers;
+    std::vector<VkCommandBuffer> commandBuffers;
+
+    // - Synchronisation
+    VkSemaphore imageAvailable;
+    VkSemaphore renderFinished;
     // - Pipekine
     VkPipeline graphicsPipeline;
     VkPipelineLayout pipelineLayout;
@@ -63,7 +76,6 @@ private:
     VkFormat swapChainImageFormat;
     VkExtent2D swapChainExtent;
 
-
     //--Vulkan函数：
     void createInstance_1();        //-创建函数
     void createDebugCallback_2();
@@ -72,6 +84,16 @@ private:
     void createSwapChain_6();       //-创建交换链
     void createRenderPass_7();      //-创建Pass
     void createGraphicsPipeline_8();//-创建图形管线
+    void createFramebuffers();      //
+    void createCommandPool();       //
+    void createCommandBuffers();    //
+
+    // - Record Functions
+    void recordCommands();          //-录制命令
+
+    void createSynchronisation();   //-创建信号量
+
+
 
     //--检查拓展：
     bool checkInstanceExtensionSupport_1_(std::vector<const char *>* checkExtensions);  //-检查实例拓展

@@ -28,14 +28,14 @@ int main() {
     initWindow();
 
     //创建Vulkan渲染器实例
-    if (renderer.init(window)== EXIT_FAILURE) {
+    if (renderer.init(window)== EXIT_FAILURE) { //---
         return EXIT_FAILURE;
     }
 
     //循环直到关闭
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
-
+        renderer.deaw();//---
     }
 
     renderer.cleanup();

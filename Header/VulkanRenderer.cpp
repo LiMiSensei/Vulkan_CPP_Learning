@@ -24,6 +24,12 @@ int VulkanRenderer::init(GLFWwindow* window)
         createSwapChain_6();        //创建交换链
         createRenderPass_7();         //创建Pass
         createGraphicsPipeline_8();   //创建图形管线
+        createFramebuffers();       //
+        createCommandPool();        //
+        createCommandBuffers();     //
+        recordCommands();           //
+
+        //信号量和栅栏
     }
     catch (const std::runtime_error& e)
     {
@@ -34,8 +40,23 @@ int VulkanRenderer::init(GLFWwindow* window)
     return 0;
 }
 
+void VulkanRenderer::deaw()
+{
+    uint32_t imageIndex;
+    vkAcquireNextImageKHR(mainDevice.logicalDevice,swapchain,std::numeric_limits<uint64_t>::max(),
+        imageAvailable,VK_NULL_HANDLE,&imageIndex);
+}
+
 void VulkanRenderer::cleanup()
 {
+    vkDestroySemaphore(mainDevice.logicalDevice,renderFinished,nullptr);
+    vkDestroySemaphore(mainDevice.logicalDevice,imageAvailable,nullptr);
+
+    vkDestroyCommandPool(mainDevice.logicalDevice,graphicsCommandPool,nullptr);
+    for (auto framebuffer :swapChainFramebuffers)
+    {
+        vkDestroyFramebuffer(mainDevice.logicalDevice,framebuffer,nullptr);
+    }
     vkDestroyPipeline(mainDevice.logicalDevice, graphicsPipeline,nullptr);
     vkDestroyPipelineLayout(mainDevice.logicalDevice,pipelineLayout, nullptr);
     vkDestroyRenderPass(mainDevice.logicalDevice,renderPass,nullptr);
@@ -515,6 +536,129 @@ void VulkanRenderer::createGraphicsPipeline_8()
     vkDestroyShaderModule(mainDevice.logicalDevice,vertexShaderModule,nullptr);
 }
 
+void VulkanRenderer::createFramebuffers()
+{
+    swapChainFramebuffers.resize(swapChainImages.size());
+
+    // 为每个交换链图像创建一个帧缓冲区
+    for (size_t i=0;i<swapChainFramebuffers.size();i++)
+    {
+        std::array<VkImageView,1> attachments ={
+            swapChainImages[i].imageView
+        };
+
+        VkFramebufferCreateInfo framebufferCreateInfo= {};
+        framebufferCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        framebufferCreateInfo.renderPass =renderPass;
+        framebufferCreateInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
+        framebufferCreateInfo.pAttachments = attachments.data();
+
+        framebufferCreateInfo.width = swapChainExtent.width;
+        framebufferCreateInfo.height =swapChainExtent.height;
+        framebufferCreateInfo.layers =1;
+
+        VkResult result = vkCreateFramebuffer(mainDevice.logicalDevice,&framebufferCreateInfo,nullptr,&swapChainFramebuffers[i]);
+
+    }
+}
+
+void VulkanRenderer::createCommandPool()
+{
+    // Get indices of queue families from device
+    QueueFamilyIndices_u queueFamilyIndices = getQueueFamilies_56A_(mainDevice.physicalDevice);
+
+
+    VkCommandPoolCreateInfo poolInfo= {};
+    poolInfo.sType =VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    poolInfo.queueFamilyIndex = queueFamilyIndices.graphicsFamily;
+
+    // Create a Graphics Queue Family Command Pool
+    VkResult result =vkCreateCommandPool(mainDevice.logicalDevice,&poolInfo,nullptr,&graphicsCommandPool);
+    if (result != VK_SUCCESS)
+    {
+        throw std::runtime_error("Failed to create a Command Pool!");
+    }
+
+}
+
+void VulkanRenderer::createCommandBuffers()
+{
+    // Resize command buffer count to have one for each framebuffer
+    commandBuffers.resize(swapChainFramebuffers.size());
+
+    VkCommandBufferAllocateInfo cbAllocInfo ={};
+    cbAllocInfo.sType =VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    cbAllocInfo.commandPool = graphicsCommandPool;
+    cbAllocInfo.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+
+    cbAllocInfo.commandBufferCount =static_cast<uint32_t>(commandBuffers.size());
+
+
+    // Allocate command buffers and place handles in array of buffers
+    VkResult result = vkAllocateCommandBuffers(mainDevice.logicalDevice,&cbAllocInfo, commandBuffers.data());
+    if (result !=VK_SUCCESS)
+    {
+        throw std::runtime_error("Failed to allocate Command Buffers!");
+    }
+
+
+}
+
+void VulkanRenderer::recordCommands()
+{
+    // 关于如何开始每个命令缓冲区的信息
+    VkCommandBufferBeginInfo bufferBeginInfo ={};
+    bufferBeginInfo.sType =VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    bufferBeginInfo.flags =VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
+
+    // Information about how to begin a render pass (only needed for graphical applications)
+    VkRenderPassBeginInfo renderPassBeginInfo = {};
+    renderPassBeginInfo.sType =VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    renderPassBeginInfo.renderPass = renderPass;                       // 渲染通道开始
+    renderPassBeginInfo.renderArea.offset ={0,0};             // 渲染通道的起始像素位置
+    renderPassBeginInfo.renderArea.extent = swapChainExtent;           // 要执行渲染通道的区域大小（从偏移量开始）
+    VkClearValue clearValues[] = {
+        {0.6f,0.65f,0.4f,1.0f}
+    };
+    renderPassBeginInfo.pClearValues = clearValues;                     // List of clear values (ToDo:Depth Attachment Clear Value)
+    renderPassBeginInfo.clearValueCount = 1;
+
+
+    for (size_t i=0;i<commandBuffers.size();i++)
+    {
+
+
+        // 开始将命令记录到命令缓冲区！
+        VkResult result =vkBeginCommandBuffer(commandBuffers[i],&bufferBeginInfo);
+        if (result !=VK_SUCCESS){
+            throw std::runtime_error("Failed to start recording a Command Buffer!");
+        }
+
+        vkCmdBeginRenderPass(commandBuffers[i],&renderPassBeginInfo,VK_SUBPASS_CONTENTS_INLINE);
+
+            // Bind Pipeline to be used in render pass
+            vkCmdBindPipeline(commandBuffers[i],VK_PIPELINE_BIND_POINT_GRAPHICS,graphicsPipeline);
+
+            // Execute pipeline
+            vkCmdDraw(commandBuffers[i],3,10,0,0);
+
+        vkCmdEndRenderPass(commandBuffers[i]);
+        //停止录制以命令缓冲区
+        result = vkEndCommandBuffer(commandBuffers[i]);
+        if (result != VK_SUCCESS)
+        {
+            throw std::runtime_error("Failed to stop recording a Command Buffer!");
+        }
+
+
+    }
+}
+
+void VulkanRenderer::createSynchronisation()
+{
+
+}
+
 
 //2-获取物理设备
 void VulkanRenderer::getPhysicalDevice_4()
@@ -601,8 +745,6 @@ bool VulkanRenderer::checkDeviceExtensionSupport_A_(VkPhysicalDevice device)
             return false;
         }
     }
-    return true;
-
     return true;
 }
 
@@ -822,4 +964,4 @@ VkShaderModule VulkanRenderer::createShaderModule(const std::vector<char>& code)
         throw std::runtime_error("Failed to create a shader module!");
     }
     return shaderModule;
-}
+};
