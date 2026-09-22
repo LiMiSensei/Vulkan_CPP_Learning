@@ -1,2 +1,1 @@
-[Vulkan Loader] ERROR:          vkCreateSwapchainKHR: Driver's function pointer was NULL, returning VK_SUCCESS. Was the
-VK_KHR_swapchain extension enabled?
+进程已结束，退出代码为 -1073741819 (0xC0000005)

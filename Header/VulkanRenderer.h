@@ -38,7 +38,8 @@ public:
 
 private:
     GLFWwindow* window;
-
+    int currentFrame = 0;
+    const bool validationEnabled = true;
     // - 实例化Vulkan
     VkInstance instance;
     VkDebugReportCallbackEXT debugCallback;
@@ -67,6 +68,7 @@ private:
     // - Synchronisation
     VkSemaphore imageAvailable;
     VkSemaphore renderFinished;
+    std::vector<VkFence> drawFences;
     // - Pipekine
     VkPipeline graphicsPipeline;
     VkPipelineLayout pipelineLayout;
