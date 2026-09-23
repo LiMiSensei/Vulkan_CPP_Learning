@@ -44,56 +44,58 @@ private:
     VkInstance instance;
     VkDebugReportCallbackEXT debugCallback;
 
+    // - 创建逻辑设备
     struct {//代表主设备
         VkPhysicalDevice physicalDevice;
         VkDevice logicalDevice;
-    } mainDevice;
-
-    // - 创建逻辑设备
-    VkQueue graphicsQueue;      //-创建逻辑设备
-    VkQueue presentationQueue;  //-创建逻辑设备
+    } mainDevice;                                   //5-创建逻辑设备
+    VkQueue graphicsQueue;                          //5-创建逻辑设备
+    VkQueue presentationQueue;                      //5-创建逻辑设备
 
     // - 创建表面
-    VkSurfaceKHR surface;
+    VkSurfaceKHR surface;                           //3-创建表面
 
     // - 交换链
-    VkSwapchainKHR swapchain;                     
-    std::vector<SwapchainImage_u> swapChainImages;
+    VkSwapchainKHR swapchain;                       //6-创建交换链
+    VkFormat swapChainImageFormat;                  //6-创建交换链
+    VkExtent2D swapChainExtent;                     //6-创建交换链
+    std::vector<SwapchainImage_u> swapChainImages;  //6-创建交换链
+
+    // - 管线
+    VkRenderPass renderPass;                        //7-创建渲染Pass
+    VkPipeline graphicsPipeline;                    //8-创建图形管线
+    VkPipelineLayout pipelineLayout;                //8-创建图形管线
 
     // - 帧缓存与命令缓冲
-    VkCommandPool graphicsCommandPool;
-    std::vector<VkFramebuffer> swapChainFramebuffers;
-    std::vector<VkCommandBuffer> commandBuffers;
+    std::vector<VkFramebuffer> swapChainFramebuffers;//9-帧缓冲
+    VkCommandPool graphicsCommandPool;               //10-命令池
+    std::vector<VkCommandBuffer> commandBuffers;     //11-命令缓冲区
 
-    // - Synchronisation
-    VkSemaphore imageAvailable;
-    VkSemaphore renderFinished;
+    // - 信号量
+    VkSemaphore imageAvailable;                      //13-信号量和栅栏
+    VkSemaphore renderFinished;                      //13-信号量和栅栏
     std::vector<VkFence> drawFences;
-    // - Pipekine
-    VkPipeline graphicsPipeline;
-    VkPipelineLayout pipelineLayout;
-    VkRenderPass renderPass;
 
-    // - Utility
-    VkFormat swapChainImageFormat;
-    VkExtent2D swapChainExtent;
+
+
+
 
     //--Vulkan函数：
-    void createInstance_1();        //-创建函数
+    void createInstance_1();            //-创建函数
     void createDebugCallback_2();
-    void createSurface_3();         //-创建表面
-    void createLogicalDevice_5();   //-创建逻辑设备
-    void createSwapChain_6();       //-创建交换链
-    void createRenderPass_7();      //-创建Pass
-    void createGraphicsPipeline_8();//-创建图形管线
-    void createFramebuffers();      //
-    void createCommandPool();       //
-    void createCommandBuffers();    //
+    void createSurface_3();             //-创建表面
+    void createLogicalDevice_5();       //-创建逻辑设备
 
-    // - Record Functions
-    void recordCommands();          //-录制命令
+    void createSwapChain_6();           //-创建交换链
+    void createRenderPass_7();          //-创建Pass
+    void createGraphicsPipeline_8();    //-创建图形管线
 
-    void createSynchronisation();   //-创建信号量
+    void createFramebuffers_9();        //-帧缓冲
+    void createCommandPool_10();        //-命令池
+    void createCommandBuffers_11();     //-命令缓冲区
+    void recordCommands_12();           //-录制命令
+
+    void createSynchronisation_13();    //-创建信号量
 
 
 

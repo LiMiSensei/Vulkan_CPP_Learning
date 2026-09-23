@@ -13,7 +13,6 @@ VulkanRenderer::VulkanRenderer()
 int VulkanRenderer::init(GLFWwindow* window)
 {
     this->window = window;
-
     try
     {
         createInstance_1();         //执行实例化Vulkan函数
@@ -21,20 +20,21 @@ int VulkanRenderer::init(GLFWwindow* window)
         createSurface_3();          //创建表面
         getPhysicalDevice_4();      //获取物理设备
         createLogicalDevice_5();    //创建逻辑设备
-        createSwapChain_6();        //创建交换链
-        createRenderPass_7();         //创建Pass
-        createGraphicsPipeline_8();   //创建图形管线
-        createFramebuffers();       //
-        createCommandPool();        //
-        createCommandBuffers();     //
-        recordCommands();           //
 
-        //信号量和栅栏
-        createSynchronisation();
+        createSwapChain_6();        //创建交换链
+        createRenderPass_7();       //创建Pass
+        createGraphicsPipeline_8(); //创建图形管线
+
+        createFramebuffers_9();        //帧缓冲
+        createCommandPool_10();        //命令池
+        createCommandBuffers_11();     //命令缓冲区
+        recordCommands_12();           //录制命令
+
+        createSynchronisation_13();    //信号量和栅栏
     }
     catch (const std::runtime_error& e)
     {
-        printf("ERROR==: %s\n", e.what());
+        printf("ERROR: %s\n", e.what());
         return EXIT_FAILURE;
     }
 
@@ -44,10 +44,16 @@ int VulkanRenderer::init(GLFWwindow* window)
 void VulkanRenderer::deaw()
 {
     // -- GET NEXT IMAGE
-    // Get index of next image to be drawn to, and signal semaphore when ready to be drawn to
-    uint32_t imageIndex;
-    vkAcquireNextImageKHR(mainDevice.logicalDevice,swapchain,std::numeric_limits<uint64_t>::max(),imageAvailable,VK_NULL_HANDLE,&imageIndex);
+    // 获取下一张要绘制图像的索引，并在准备好绘制时发送信号量
+    uint32_t imageIndex = 0;
+    VkResult acquireResult = vkAcquireNextImageKHR(mainDevice.logicalDevice,swapchain,std::numeric_limits<uint64_t>::max(),imageAvailable,VK_NULL_HANDLE,&imageIndex);
 
+    //必须检查返回值：真正失败时 imageIndex 不会被写入，
+    if (acquireResult != VK_SUCCESS && acquireResult != VK_ERROR_OUT_OF_DATE_KHR)
+    {
+        printf("Failed to acquire next image! VkResult = %d\n", acquireResult);
+        return;
+    }
 
     // -- SUBMIT COMMAND BUFFER TO RENDER -
     // Queue submission information
@@ -61,8 +67,8 @@ void VulkanRenderer::deaw()
     submitInfo.pWaitDstStageMask=waitStages;
     submitInfo.commandBufferCount =1;
     submitInfo.pCommandBuffers =&commandBuffers[imageIndex];
-    submitInfo.signalSemaphoreCount =1;                         // Number of semaphores to signal
-    submitInfo.pSignalSemaphores =&renderFinished;              // Semaphores to signal when command buffer finishes
+    submitInfo.signalSemaphoreCount =1;                         // 用于信号的信号量数量
+    submitInfo.pSignalSemaphores =&renderFinished;              // 当命令缓冲区完成时用于信号的信号量
 
     // Submit command buffer to queue
     VkResult result= vkQueueSubmit(graphicsQueue,1,&submitInfo,VK_NULL_HANDLE);
@@ -74,15 +80,16 @@ void VulkanRenderer::deaw()
     // -- PRESENT RENDERED IMAGE TO SCREEN
     VkPresentInfoKHR presentInfo ={};
     presentInfo.sType =VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-    presentInfo.waitSemaphoreCount =1;                  // Number of semaphores to wait on
-    presentInfo.pWaitSemaphores = &renderFinished;      // Semaphores to wait on
-    presentInfo.swapchainCount =1;                      // Number of swapchains to present to
-    presentInfo.pSwapchains= &swapchain;                // Swapchains to present images to
-    presentInfo.pImageIndices = &imageIndex;            // Index of images in swapchains to present
+    presentInfo.waitSemaphoreCount =1;                  // 等待的信号量数量
+    presentInfo.pWaitSemaphores = &renderFinished;      // 等待的信号量
+    presentInfo.swapchainCount =1;                      // 要呈现的交换链数量
+    presentInfo.pSwapchains= &swapchain;                // 要呈现图像的交换链
+    presentInfo.pImageIndices = &imageIndex;            // 交换链中图像的索引
 
     // Present image
     result = vkQueuePresentKHR(presentationQueue,&presentInfo);
-    if (result != VK_SUCCESS)
+    //同样地，SUBOPTIMAL / OUT_OF_DATE 表示需要重建交换链，但本帧已经提交完成，不应中断渲染循环
+    if (result != VK_SUCCESS &&result != VK_ERROR_OUT_OF_DATE_KHR)
     {
         throw std::runtime_error("Failed to present Image!");
     }
@@ -91,30 +98,30 @@ void VulkanRenderer::deaw()
 
 void VulkanRenderer::cleanup()
 {
+    //-等待设备空闲
+    vkDeviceWaitIdle(mainDevice.logicalDevice);
+    //-清除信号量
     vkDestroySemaphore(mainDevice.logicalDevice,renderFinished,nullptr);
     vkDestroySemaphore(mainDevice.logicalDevice,imageAvailable,nullptr);
-
+    //-清除命令池
     vkDestroyCommandPool(mainDevice.logicalDevice,graphicsCommandPool,nullptr);
+    //-销毁命令缓冲区
     for (auto framebuffer :swapChainFramebuffers)
     {
         vkDestroyFramebuffer(mainDevice.logicalDevice,framebuffer,nullptr);
     }
+    //-销毁管线
     vkDestroyPipeline(mainDevice.logicalDevice, graphicsPipeline,nullptr);
     vkDestroyPipelineLayout(mainDevice.logicalDevice,pipelineLayout, nullptr);
     vkDestroyRenderPass(mainDevice.logicalDevice,renderPass,nullptr);
+    //
     for (auto image :swapChainImages)
     {
         vkDestroyImageView(mainDevice.logicalDevice,image.imageView,nullptr);
     }
-
-
-
     vkDestroySwapchainKHR(mainDevice.logicalDevice,swapchain,nullptr);  //清除交换链
     vkDestroySurfaceKHR(instance, surface, nullptr);                    //清楚表面
     vkDestroyDevice(mainDevice.logicalDevice, nullptr);                 //清除逻辑设备
-    /*if (validationEnabled) {
-        DestroyDebugReportCallbackEXT(instance, debugCallback, nullptr);
-    }*/
     vkDestroyInstance(instance, nullptr);                               //清除实例
 }
 
@@ -135,13 +142,11 @@ void VulkanRenderer::createInstance_1()
     appInfo.pEngineName = "No Engine"; //引擎名称
     appInfo.apiVersion = VK_API_VERSION_1_4; //期望使用的 Vulkan API 版本
 
-
     //Vkinstance的创建信息(Vulkan实例）
     VkInstanceCreateInfo createInfo = {};
     createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     createInfo.flags = 0; //VK_WHATEVER | VK_OTHERTHING;
     createInfo.pApplicationInfo = &appInfo;
-
 
     //创建一个列表来存储实例扩展
     std::vector<const char*> instanceExtensions = std::vector<const char*>();
@@ -266,17 +271,17 @@ void VulkanRenderer::createSwapChain_6()
     //交换链的创建信息
     VkSwapchainCreateInfoKHR swapChainCreateInfo = {};
     swapChainCreateInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-    swapChainCreateInfo.surface = surface;                              //交换链表面
-    swapChainCreateInfo.imageFormat = surfaceFormat.format;             //交换链格式
-    swapChainCreateInfo.imageColorSpace = surfaceFormat.colorSpace;     //交换链色彩空间
-    swapChainCreateInfo.presentMode = presentMode;                      //交换链显示模式
-    swapChainCreateInfo.imageExtent = extent;                           //交换链图像范围
-    swapChainCreateInfo.minImageCount = imageCount;                     //交换链中最小图像数量
-    swapChainCreateInfo.imageArrayLayers = 1;                           //Number of layers for each image in chain
-    swapChainCreateInfo.imageUsage  = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;//What attachment images will be used as
-    swapChainCreateInfo.preTransform = swapChainDetails.surfaceCapabilities.currentTransform;//Transform to perform on swap chain images
-    swapChainCreateInfo.compositeAlpha =VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;//How to handle blending images with external graphics (e.g. other windows)
-    swapChainCreateInfo.clipped=VK_TRUE;//Whether to clip parts of image not in view (e.g. behind another window, off screen, etc)
+    swapChainCreateInfo.surface = surface;                                                      //交换链表面
+    swapChainCreateInfo.imageFormat = surfaceFormat.format;                                     //交换链格式
+    swapChainCreateInfo.imageColorSpace = surfaceFormat.colorSpace;                             //交换链色彩空间
+    swapChainCreateInfo.presentMode = presentMode;                                              //交换链显示模式
+    swapChainCreateInfo.imageExtent = extent;                                                   //交换链图像范围
+    swapChainCreateInfo.minImageCount = imageCount;                                             //交换链中最小图像数量
+    swapChainCreateInfo.imageArrayLayers = 1;                                                   //链中每张图像的层数
+    swapChainCreateInfo.imageUsage  = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;                      //将使用哪些附加图像
+    swapChainCreateInfo.preTransform = swapChainDetails.surfaceCapabilities.currentTransform;   //转换为在交换链图像上执行
+    swapChainCreateInfo.compositeAlpha =VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;                      //如何处理将图像与外部图形（例如其他窗口）进行混合
+    swapChainCreateInfo.clipped=VK_TRUE;                                                        //是否裁剪图像中未在视图范围内的部分（例如位于其他窗口后方、超出屏幕等）
 
 
     // 获取队列家族索引
@@ -347,8 +352,8 @@ void VulkanRenderer::createRenderPass_7()
     colourAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE; // 描述渲染后对描边的处理
 
     // 帧缓冲区数据将以图像形式存储，但图像可以采用不同的数据布局，以实现特定操作的最优利用。
-    colourAttachment.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED;           // Image data layout before render pass starts
-    colourAttachment.finalLayout =VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;      // Image data layout after render pass (to change to)
+    colourAttachment.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED;           // 渲染通道开始前的图像数据布局
+    colourAttachment.finalLayout =VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;      // 渲染通道后的图像数据布局（用于更改）
 
 
     // 附件引用使用一个附件索引，该索引指向传递给 renderPassCreateInfo 的附件列表中的索引。
@@ -412,62 +417,62 @@ void VulkanRenderer::createGraphicsPipeline_8()
     VkShaderModule fragmentShaderModule = createShaderModule(fragmentShaderCode);
 
 
-    //--SHADER STAGE CREATION INFORMATION -
-    // 顶点阶段创建信息
+    //--着色器阶段创建信息 --
+    //ToDo: 顶点阶段创建信息
     VkPipelineShaderStageCreateInfo vertexShaderCreateInfo = {};
     vertexShaderCreateInfo.sType =VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     vertexShaderCreateInfo.stage =VK_SHADER_STAGE_VERTEX_BIT;       // 着色器阶段名称
     vertexShaderCreateInfo.module = vertexShaderModule;             // 该阶段将使用的着色器模块
     vertexShaderCreateInfo.pName ="main";                           // 着色器的入口点
-    // 片段阶段创建信息
+    //ToDo: 片段阶段创建信息
     VkPipelineShaderStageCreateInfo fragmentShaderCreateInfo ={};
     fragmentShaderCreateInfo.sType =VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     fragmentShaderCreateInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;  // 着色器阶段名称
     fragmentShaderCreateInfo.module =fragmentShaderModule;          // 该阶段将使用的着色器模块
     fragmentShaderCreateInfo.pName ="main";                         // 着色器的入口点
 
-    // 将着色器阶段创建信息放入数组
+    //ToDo: 将着色器阶段创建信息放入数组
     // 图形管线创建信息需要一个着色器阶段创建的数组
     VkPipelineShaderStageCreateInfo shaderStages[]={vertexShaderCreateInfo,fragmentShaderCreateInfo};
 
 
-    // -- VERTEX INPUT (TODo：在创建资源时添加顶点描述)-
+    // -- 顶点输入 (TODo：在创建资源时添加顶点描述)-
     VkPipelineVertexInputStateCreateInfo vertexInputCreateInfo = {};
     vertexInputCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vertexInputCreateInfo.vertexBindingDescriptionCount =0;
-    vertexInputCreateInfo.pVertexBindingDescriptions = nullptr;// 顶点绑定描述列表
-    vertexInputCreateInfo.vertexAttributeDescriptionCount =0;
+    vertexInputCreateInfo.vertexBindingDescriptionCount = 0;
+    vertexInputCreateInfo.pVertexBindingDescriptions = nullptr;     // 顶点绑定描述列表
+    vertexInputCreateInfo.vertexAttributeDescriptionCount = 0;
     vertexInputCreateInfo.pVertexAttributeDescriptions = nullptr;// 顶点属性描述列表
 
-    // -- INPUT ASSEMBLY --
+    // -- 输入组件 --
     VkPipelineInputAssemblyStateCreateInfo inputAssembly ={};
     inputAssembly.sType =VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
     inputAssembly.topology =VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;    // 将原始类型用于组装顶点
     inputAssembly.primitiveRestartEnable =VK_FALSE;                 // 允许覆盖“条带”拓扑以开始新的原始类型
 
 
-    //-- VIEWPORT & SCISSOR
-    // 创建视口信息结构
-    VkViewport viewport={};
-    viewport.x= 0.0f;                               // x 起始坐标
-    viewport.y =0.0f;                               // y 起始坐标
-    viewport.width=(float)swapChainExtent.width;    // 视口宽度
-    viewport.height =(float)swapChainExtent.height; // 视口高度
-    viewport.minDepth =0.0f;                        // 最小帧缓冲区深度
-    viewport.maxDepth =1.0f;                        // 最大帧缓冲区深度
+    //-- 视口与剪刀 --
+    //ToDo: 创建视口信息结构
+    VkViewport viewport = {};
+    viewport.x = 0.0f;                                   // x 起始坐标
+    viewport.y = 0.0f;                                   // y 起始坐标
+    viewport.width = (float)swapChainExtent.width;       // 视口宽度
+    viewport.height = (float)swapChainExtent.height;     // 视口高度
+    viewport.minDepth = 0.0f;                            // 最小帧缓冲区深度
+    viewport.maxDepth = 1.0f;                            // 最大帧缓冲区深度
 
 
-    // 创建一个剪刀信息结构体
+    //ToDo: 创建一个剪刀信息结构体
     VkRect2D scissor ={};
-    scissor.offset = {0,0};                 // 偏移以使用区域
-    scissor.extent = swapChainExtent;                // 指定要使用的区域范围，从偏移量开始
+    scissor.offset = {0,0};                     // 偏移以使用区域
+    scissor.extent = swapChainExtent;                    // 指定要使用的区域范围，从偏移量开始
 
     VkPipelineViewportStateCreateInfo viewportStateCreateInfo ={};
-    viewportStateCreateInfo.sType =VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-    viewportStateCreateInfo.viewportCount =1;
-    viewportStateCreateInfo.pViewports =&viewport;
-    viewportStateCreateInfo.scissorCount =1;
-    viewportStateCreateInfo.pScissors =&scissor;
+    viewportStateCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportStateCreateInfo.viewportCount = 1;
+    viewportStateCreateInfo.pViewports = &viewport;
+    viewportStateCreateInfo.scissorCount = 1;
+    viewportStateCreateInfo.pScissors = &scissor;
 
     /*// -- DYNAMIC STATES -
     // 动态状态以启用
@@ -482,7 +487,7 @@ void VulkanRenderer::createGraphicsPipeline_8()
     dynamicStateCreateInfo.pDynamicStates =dynamicStateEnables.data();*/
 
 
-    // -- RASTERIZER -
+    // -- 光栅化程序 --
     VkPipelineRasterizationStateCreateInfo rasterizerCreateInfo = {};
     rasterizerCreateInfo.sType =VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
     rasterizerCreateInfo.depthClampEnable=VK_FALSE;
@@ -494,20 +499,20 @@ void VulkanRenderer::createGraphicsPipeline_8()
     rasterizerCreateInfo.depthBiasEnable =VK_FALSE;
 
 
-    // -- MULTISAMPLING --
+    // -- 多采样 --
     VkPipelineMultisampleStateCreateInfo multisamplingCreateInfo = {};
     multisamplingCreateInfo.sType =VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     multisamplingCreateInfo.sampleShadingEnable=VK_FALSE;// Enable multisample shading or not
     multisamplingCreateInfo.rasterizationSamples =VK_SAMPLE_COUNT_1_BIT;// Number of samples to use per fragment
 
 
-    // Blend Attachment State (how blending is handled)
+    //ToDo: 混合附件状态（混合方式的处理）
     VkPipelineColorBlendAttachmentState colourState = {};
     colourState.colorWriteMask =VK_COLOR_COMPONENT_R_BIT |VK_COLOR_COMPONENT_G_BIT// Colours to apply blending to
     |VK_COLOR_COMPONENT_B_BIT|VK_COLOR_COMPONENT_A_BIT;
     colourState.blendEnable =VK_TRUE;// Enable blending
 
-    // Blending uses equation:(srcColorBlendFactor * new colour) colorBlendOp (dstColorBlendFactor * old colour)
+    //ToDo: 混合使用公式：(srcColorBlendFactor * 新颜色) + colorBlendOp (dstColorBlendFactor * 旧颜色)
     colourState.srcColorBlendFactor =VK_BLEND_FACTOR_SRC_ALPHA;
     colourState.dstColorBlendFactor =VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
     colourState.colorBlendOp=VK_BLEND_OP_ADD;
@@ -524,9 +529,9 @@ void VulkanRenderer::createGraphicsPipeline_8()
     colourBlendingCreateInfo.attachmentCount =1;
     colourBlendingCreateInfo.pAttachments = &colourState;
 
-    // Summarised:(1 *new alpha) + (e* old alpha)= new alpha
+    // 摘要：(1 * 新阿尔法) + (e * 旧阿尔法) = 新阿尔法
     //
-    //-- PIPELINE LAYOUT (TODO:Apply Future Descriptor Set Layouts) --
+    //-- 管道布局（待用：应用未来的描述符集布局） --
     VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo ={};
     pipelineLayoutCreateInfo.sType =VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipelineLayoutCreateInfo.setLayoutCount =0;
@@ -544,7 +549,7 @@ void VulkanRenderer::createGraphicsPipeline_8()
 
 
 
-    // -- GRAPHICSPIPELINE CREATION --
+    // -- 图形管线创建 --
     VkGraphicsPipelineCreateInfo pipelineCreateInfo = {};
     pipelineCreateInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
     pipelineCreateInfo.stageCount = 2;
@@ -565,20 +570,21 @@ void VulkanRenderer::createGraphicsPipeline_8()
     pipelineCreateInfo.basePipelineIndex =-1;
 
 
-    // Create Graphics Pipeline
+    // 创建图形管线
     result =vkCreateGraphicsPipelines(mainDevice.logicalDevice,VK_NULL_HANDLE,1,&pipelineCreateInfo,nullptr,&graphicsPipeline);
     if (result !=VK_SUCCESS)
     {
         throw std::runtime_error("Failed to create a Graphics Pipeline!");
     }
 
-    // CREATE PIPELINE
-    // 销毁着色器模块，管道创建后不再需要
+
+    //-- 销毁着色器模块 --
     vkDestroyShaderModule(mainDevice.logicalDevice,fragmentShaderModule,nullptr);
     vkDestroyShaderModule(mainDevice.logicalDevice,vertexShaderModule,nullptr);
 }
 
-void VulkanRenderer::createFramebuffers()
+//9-帧缓冲
+void VulkanRenderer::createFramebuffers_9()
 {
     swapChainFramebuffers.resize(swapChainImages.size());
 
@@ -604,7 +610,8 @@ void VulkanRenderer::createFramebuffers()
     }
 }
 
-void VulkanRenderer::createCommandPool()
+//10-命令池
+void VulkanRenderer::createCommandPool_10()
 {
     // Get indices of queue families from device
     QueueFamilyIndices_u queueFamilyIndices = getQueueFamilies_56A_(mainDevice.physicalDevice);
@@ -623,9 +630,10 @@ void VulkanRenderer::createCommandPool()
 
 }
 
-void VulkanRenderer::createCommandBuffers()
+//11-命令缓冲区
+void VulkanRenderer::createCommandBuffers_11()
 {
-    // Resize command buffer count to have one for each framebuffer
+    // 将命令缓冲区数量调整为每个帧缓冲区一个
     commandBuffers.resize(swapChainFramebuffers.size());
 
     VkCommandBufferAllocateInfo cbAllocInfo ={};
@@ -636,7 +644,7 @@ void VulkanRenderer::createCommandBuffers()
     cbAllocInfo.commandBufferCount =static_cast<uint32_t>(commandBuffers.size());
 
 
-    // Allocate command buffers and place handles in array of buffers
+    // 分配命令缓冲区并将句柄放入缓冲区数组中
     VkResult result = vkAllocateCommandBuffers(mainDevice.logicalDevice,&cbAllocInfo, commandBuffers.data());
     if (result !=VK_SUCCESS)
     {
@@ -646,14 +654,15 @@ void VulkanRenderer::createCommandBuffers()
 
 }
 
-void VulkanRenderer::recordCommands()
+//12-录制命令
+void VulkanRenderer::recordCommands_12()
 {
     // 关于如何开始每个命令缓冲区的信息
     VkCommandBufferBeginInfo bufferBeginInfo ={};
     bufferBeginInfo.sType =VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     bufferBeginInfo.flags =VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
 
-    // Information about how to begin a render pass (only needed for graphical applications)
+    // 关于如何开始渲染通道的信息（仅适用于图形应用程序）
     VkRenderPassBeginInfo renderPassBeginInfo = {};
     renderPassBeginInfo.sType =VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     renderPassBeginInfo.renderPass = renderPass;                       // 渲染通道开始
@@ -674,12 +683,15 @@ void VulkanRenderer::recordCommands()
             throw std::runtime_error("Failed to start recording a Command Buffer!");
         }
 
+        //绑定本次记录要使用的帧缓冲（必须与命令缓冲区下标对应的交换链图像一致）
+        renderPassBeginInfo.framebuffer = swapChainFramebuffers[i];
+
         vkCmdBeginRenderPass(commandBuffers[i],&renderPassBeginInfo,VK_SUBPASS_CONTENTS_INLINE);
 
-            // Bind Pipeline to be used in render pass
+            // 将绑定管道用于渲染通道
             vkCmdBindPipeline(commandBuffers[i],VK_PIPELINE_BIND_POINT_GRAPHICS,graphicsPipeline);
 
-            // Execute pipeline
+            // 执行流水线
             vkCmdDraw(commandBuffers[i],3,10,0,0);
 
         vkCmdEndRenderPass(commandBuffers[i]);
@@ -694,14 +706,18 @@ void VulkanRenderer::recordCommands()
     }
 }
 
-void VulkanRenderer::createSynchronisation()
+//13-信号量和栅栏
+void VulkanRenderer::createSynchronisation_13()
 {
-    // Semaphore creation information
+    // 信号灯创建信息
     VkSemaphoreCreateInfo semaphoreCreateInfo ={};
     semaphoreCreateInfo.sType =VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
     if(vkCreateSemaphore(mainDevice.logicalDevice,&semaphoreCreateInfo,nullptr,&imageAvailable) !=VK_SUCCESS ||
     vkCreateSemaphore(mainDevice.logicalDevice,&semaphoreCreateInfo,nullptr,&renderFinished) !=VK_SUCCESS)
-    throw std::runtime_error("Failed to create a Semaphore!");
+    {
+        throw std::runtime_error("Failed to create a Semaphore!");
+    }
+
 }
 
 
@@ -725,6 +741,13 @@ void VulkanRenderer::getPhysicalDevice_4()
             mainDevice.physicalDevice = device;
             break;
         }
+    }
+
+    //如果没有找到合适的设备，physicalDevice 会保持为 VK_NULL_HANDLE。
+    //后续 vkCreateDevice / vkGetPhysicalDevice* 用空句柄会被驱动解引用，直接崩溃(0xC0000005)。
+    if (mainDevice.physicalDevice == VK_NULL_HANDLE)
+    {
+        throw std::runtime_error("No suitable Vulkan physical device found!");
     }
 }
 
@@ -895,9 +918,6 @@ SwapChainDetails_u VulkanRenderer::getSwapChainDetails_A6(VkPhysicalDevice devic
     return swapChainDetails;
 }
 
-//最佳格式是主观的，但我们的将是：格式 VKFORMAT_R8G8B8A8UNORM
-//Format  VK_FORMAT_R8G8B8A8_UNORM
-//colorSpace  VK_COLOR_SPACE_SRGB_NONLINEAR_KHR
 VkSurfaceFormatKHR VulkanRenderer::chooseBestSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& formats)
 {
     // 如果仅有一种格式可用且未定义，则表示所有格式均可用（无限制）
@@ -918,8 +938,7 @@ VkSurfaceFormatKHR VulkanRenderer::chooseBestSurfaceFormat(const std::vector<VkS
     return formats[0];
 }
 
-VkPresentModeKHR VulkanRenderer::chooseBestPresentationMode(
-    const std::vector<VkPresentModeKHR> presentationModes)
+VkPresentModeKHR VulkanRenderer::chooseBestPresentationMode(const std::vector<VkPresentModeKHR> presentationModes)
 {
     //查找邮箱演示模式
     for (const auto& presentationMode : presentationModes)
@@ -971,9 +990,6 @@ VkImageView VulkanRenderer::createImageView(VkImage image, VkFormat format, VkIm
     viewCreateInfo.components.a=VK_COMPONENT_SWIZZLE_IDENTITY;
     viewCreateInfo.subresourceRange.aspectMask = aspectFlags;       // 要查看图像的哪个方面（例如，CoLoR_BIT 用于查看颜色）
 
-
-
-
     // ubresources 允许视图仅显示图像的一部分
     viewCreateInfo.subresourceRange.aspectMask = aspectFlags;       // 要查看图像的哪个方面
     viewCreateInfo.subresourceRange.baseMipLevel =0;                // 从哪个mipmap级别开始查看
@@ -995,13 +1011,13 @@ VkImageView VulkanRenderer::createImageView(VkImage image, VkFormat format, VkIm
 
 VkShaderModule VulkanRenderer::createShaderModule(const std::vector<char>& code)
 {
-    // Shader Module creation information
+    // 着色器模块创建信息
     VkShaderModuleCreateInfo shaderModuleCreateInfo={};
     shaderModuleCreateInfo.sType =VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
     shaderModuleCreateInfo.codeSize =code.size();
-    // Size of code
+    // 代码大小
     shaderModuleCreateInfo.pCode = reinterpret_cast<const uint32_t *>(code.data());
-    // Pointer to code (of uint32_t pointer type)
+    // 指向代码的指针（uint32_t 指针类型）
     VkShaderModule shaderModule;
     VkResult result = vkCreateShaderModule(mainDevice.logicalDevice,&shaderModuleCreateInfo,nullptr,&shaderModule);
     if (result != VK_SUCCESS)

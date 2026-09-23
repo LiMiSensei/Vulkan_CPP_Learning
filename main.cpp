@@ -12,7 +12,7 @@ GLFWwindow* window;
 VulkanRenderer renderer;
 
 
-void initWindow(std::string windowName = "TestWindow", int width = 800, int height = 600) {
+void initWindow(std::string windowName = "VulkanTest", int width = 800, int height = 600) {
     //初始化GLFW
     glfwInit();
     //设置GLFW不与OpenGL一起工作
