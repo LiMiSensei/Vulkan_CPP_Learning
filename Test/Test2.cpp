@@ -864,6 +864,9 @@ void VulkanRenderer::createSynchronisation_13()
     }
 }
 
+
+
+
 //====================================================================================================
 
 //检查实例拓展
@@ -897,7 +900,6 @@ bool VulkanRenderer::checkInstanceExtensionSupport_1_(std::vector<const char*>* 
     return true;
 }
 
-//检查驱动扩展
 bool VulkanRenderer::checkDeviceExtensionSupport_A_(VkPhysicalDevice device)
 {
     //获取设备扩展数量
@@ -932,7 +934,6 @@ bool VulkanRenderer::checkDeviceExtensionSupport_A_(VkPhysicalDevice device)
     return true;
 }
 
-//Null
 bool VulkanRenderer::checkValidationLayerSupport()
 {
     //获取可用的验证层数量
@@ -990,7 +991,7 @@ bool VulkanRenderer::checkDeviceSuitable_4_A(VkPhysicalDevice device)
 
 //====================================================================================================
 
-//— 查某块设备的队列家族，定位支持图形命令的 graphicsFamily 和支持呈现到窗口的 presentFamily 索引
+//获取队列家族 （检查合格设备，）
 QueueFamilyIndices_u VulkanRenderer::getQueueFamilies_56A_(VkPhysicalDevice device)
 {
     QueueFamilyIndices_u indices;
@@ -1030,7 +1031,7 @@ QueueFamilyIndices_u VulkanRenderer::getQueueFamilies_56A_(VkPhysicalDevice devi
     return indices;
 }
 
-//— 查该设备在当前表面上的能力：可用像素格式、呈现模式和分辨率范围，后面挑选参数靠它
+//获取交换链
 SwapChainDetails_u VulkanRenderer::getSwapChainDetails_A6(VkPhysicalDevice device)
 {
     SwapChainDetails_u swapChainDetails;
@@ -1065,7 +1066,6 @@ SwapChainDetails_u VulkanRenderer::getSwapChainDetails_A6(VkPhysicalDevice devic
 
 //====================================================================================================
 
-//从可用格式里挑最合适的：优先 R8G8B8A8 / B8G8R8A8 加 sRGB 色彩空间，否则退回第一个
 VkSurfaceFormatKHR VulkanRenderer::chooseBestSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& formats)
 {
     // 如果仅有一种格式可用且未定义，则表示所有格式均可用（无限制）
@@ -1085,7 +1085,7 @@ VkSurfaceFormatKHR VulkanRenderer::chooseBestSurfaceFormat(const std::vector<VkS
     //如果找不到最优格式，则直接返回第一个格式
     return formats[0];
 }
-//挑呈现模式：优先 MAILBOX（三缓冲、低延迟），找不到就退回规范强制支持的 FIFO
+
 VkPresentModeKHR VulkanRenderer::chooseBestPresentationMode(const std::vector<VkPresentModeKHR> presentationModes)
 {
     //查找邮箱演示模式
@@ -1100,7 +1100,7 @@ VkPresentModeKHR VulkanRenderer::chooseBestPresentationMode(const std::vector<Vk
     //如果找不到，就使用FIFO，因为Vulkan规范要求必须如此
     return VK_PRESENT_MODE_FIFO_KHR;
 }
-//决定交换链图像分辨率：能力给了固定值就用它，否则取窗口帧缓冲大小并夹到 min/max 范围内
+
 VkExtent2D VulkanRenderer::chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities)
 {
     //如果当前范围位于数值限制处，则范围可以变化。否则，它就是窗口的大小。
@@ -1125,9 +1125,6 @@ VkExtent2D VulkanRenderer::chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capa
     }
 }
 
-//====================================================================================================
-
-//为图像创建 2D 视图。交换链拿到的是裸图像，必须包一层视图才能被帧缓冲和管线使用
 VkImageView VulkanRenderer::createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags)
 {
     VkImageViewCreateInfo viewCreateInfo ={};
@@ -1159,7 +1156,7 @@ VkImageView VulkanRenderer::createImageView(VkImage image, VkFormat format, VkIm
     return imageView;
 
 }
-//把读入的 SPIR-V 字节码包装成着色器模块，作为图形管线各阶段的可执行代码来源
+
 VkShaderModule VulkanRenderer::createShaderModule(const std::vector<char>& code)
 {
     // 着色器模块创建信息

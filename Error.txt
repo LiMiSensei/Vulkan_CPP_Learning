@@ -1,1 +1,14 @@
-https://nyaa.help/?q=%E4%B8%8E%E4%BD%A0%E7%9B%B8%E6%81%8B%E5%88%B0%E7%94%9F%E5%91%BD%E5%B0%BD%E5%A4%B4&f=0&c=0_0
+C:\共享文件夹\Vulkan_CPP_Learning\cmake-build-release-visual-studio\Release\Vulkan_CPP_Learning.exe
+VALIDATION ERROR: vkCreateGraphicsPipelines(): pCreateInfos[0].pVertexInputState->pVertexBindingDescriptions[0].inputRat
+e (106) does not fall within the begin..end range of the VkVertexInputRate enumeration tokens and is not an extension ad
+ded token.
+The Vulkan spec states: inputRate must be a valid VkVertexInputRate value (https://docs.vulkan.org/spec/latest/chapters/
+fxvertex.html#VUID-VkVertexInputBindingDescription-inputRate-parameter)
+VALIDATION ERROR: vkCreateGraphicsPipelines(): pCreateInfos[0].pVertexInputState->pVertexAttributeDescriptions[0].bindin
+g (0) does not exist in pVertexBindingDescription.
+The Vulkan spec states: For every binding specified by each element of pVertexAttributeDescriptions, a VkVertexInputBind
+ingDescription must exist in pVertexBindingDescriptions with the same value of binding (https://docs.vulkan.org/spec/lat
+est/chapters/fxvertex.html#VUID-VkPipelineVertexInputStateCreateInfo-binding-00615)
+ERROR: Failed to create a Graphics Pipeline!
+
+进程已结束，退出代码为 1
