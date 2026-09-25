@@ -16,7 +16,6 @@
 | Vulkan API | 图形渲染 |
 | GLFW 3.5.1 | 窗口管理 |
 | GLM 1.0.3 | 数学库 |
-| HLSL + DXC | 着色器编写与运行时编译（`dxcompiler.dll` → SPIR-V） |
 | ImGui 1.92.9b | 已集成，预留 UI |
 
 ## 环境要求
