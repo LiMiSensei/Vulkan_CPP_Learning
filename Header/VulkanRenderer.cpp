@@ -12,7 +12,6 @@
 VulkanRenderer::VulkanRenderer()
 {
 }
-
 int VulkanRenderer::init(GLFWwindow* window)
 {
     this->window = window;
@@ -26,22 +25,29 @@ int VulkanRenderer::init(GLFWwindow* window)
 
         createSwapChain_6();        //创建交换链
         createRenderPass_7();       //创建Pass
+
+        createDescriptorSetLayout();
+
         createGraphicsPipeline_8(); //创建图形管线
 
         createFramebuffers_9();        //帧缓冲
         createCommandPool_10();        //命令池
 
         //=================================================================
+        uboViewProjection.projection = glm::perspective(glm::radians(45.0f), (float)swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 100.0f);
+        uboViewProjection.view = glm::lookAt(glm::vec3(0.0f, 0.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+        uboViewProjection.projection[1][1] *= -1;
+
         std::vector<Vertex_u> meshVertices = {
-            { { -0.1, -0.4, 0.0 },{ 1.0f, 0.0f, 0.0f } },	// 0
+            { { -0.45, -0.4, 0.0 },{ 1.0f, 0.0f, 0.0f } },	// 0
             { { -0.1, 0.4, 0.0 },{ 0.0f, 1.0f, 0.0f } },	    // 1
             { { -0.9, 0.4, 0.0 },{ 0.0f, 0.0f, 1.0f } },    // 2
-            { { -0.9, -0.4, 0.0 },{ 1.0f, 1.0f, 0.0f } },   // 3
+            //{ { -0.9, -0.4, 0.0 },{ 1.0f, 1.0f, 0.0f } },   // 3
         };
 
         std::vector<Vertex_u> meshVertices2 = {
             { { 0.9, -0.3, 0.0 },{ 1.0f, 0.0f, 0.0f } },	  // 0
-            { { 0.9, 0.1, 0.0 },{ 0.0f, 1.0f, 0.0f } },	  // 1
+            { { 0.9, 0.3, 0.0 },{ 0.0f, 1.0f, 0.0f } },	  // 1
             { { 0.1, 0.3, 0.0 },{ 0.0f, 0.0f, 1.0f } },    // 2
             { { 0.1, -0.3, 0.0 },{ 1.0f, 1.0f, 0.0f } },   // 3
         };
@@ -63,8 +69,13 @@ int VulkanRenderer::init(GLFWwindow* window)
         meshList.push_back(secondMesh);
         //=================================================================
 
-
         createCommandBuffers_11();     //命令缓冲区
+
+        //=================================================================
+
+        allocateDynamicBufferTransferSpace();
+
+        //=================================================================
         recordCommands_12();           //录制命令
 
         createSynchronisation_13();    //信号量和栅栏
@@ -77,7 +88,6 @@ int VulkanRenderer::init(GLFWwindow* window)
 
     return 0;
 }
-
 void VulkanRenderer::deaw()
 {
 	// -- GET NEXT IMAGE --
@@ -90,6 +100,8 @@ void VulkanRenderer::deaw()
 	uint32_t imageIndex;
 	vkAcquireNextImageKHR(mainDevice.logicalDevice, swapchain, std::numeric_limits<uint64_t>::max(), imageAvailable[currentFrame], VK_NULL_HANDLE, &imageIndex);
 
+    updateUniformBuffers(imageIndex);
+
 	// -- SUBMIT COMMAND BUFFER TO RENDER --
 	// Queue submission information
 	VkSubmitInfo submitInfo = {};
@@ -99,11 +111,11 @@ void VulkanRenderer::deaw()
 	VkPipelineStageFlags waitStages[] = {
 		VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
 	};
-	submitInfo.pWaitDstStageMask = waitStages;						// Stages to check semaphores at
-	submitInfo.commandBufferCount = 1;								// Number of command buffers to submit
-	submitInfo.pCommandBuffers = &commandBuffers[imageIndex];		// Command buffer to submit
-	submitInfo.signalSemaphoreCount = 1;							// Number of semaphores to signal
-	submitInfo.pSignalSemaphores = &renderFinished[currentFrame];	// Semaphores to signal when command buffer finishes
+	submitInfo.pWaitDstStageMask = waitStages;						        // Stages to check semaphores at
+	submitInfo.commandBufferCount = 1;								        // Number of command buffers to submit
+	submitInfo.pCommandBuffers = &commandBuffers[imageIndex];		        // Command buffer to submit
+	submitInfo.signalSemaphoreCount = 1;							        // Number of semaphores to signal
+	submitInfo.pSignalSemaphores = &renderFinished[currentFrame];	        // Semaphores to signal when command buffer finishes
 
 	// Submit command buffer to queue
 	VkResult result = vkQueueSubmit(graphicsQueue, 1, &submitInfo, drawFences[currentFrame]);
@@ -132,11 +144,22 @@ void VulkanRenderer::deaw()
 	// Get next frame (use % MAX_FRAME_DRAWS to keep value below MAX_FRAME_DRAWS)
 	currentFrame = (currentFrame + 1) % MAX_FRAME_DRAWS;
 }
-
 void VulkanRenderer::cleanup()
 {
     // Wait until no actions being run on device before destroying
     vkDeviceWaitIdle(mainDevice.logicalDevice);
+
+    _aligned_free(modelTransferSpace);
+
+    vkDestroyDescriptorPool(mainDevice.logicalDevice, descriptorPool, nullptr);
+    vkDestroyDescriptorSetLayout(mainDevice.logicalDevice, descriptorSetLayout, nullptr);
+    for (size_t i = 0; i < swapChainImages.size(); i++)
+    {
+        vkDestroyBuffer(mainDevice.logicalDevice, vpUniformBuffer[i], nullptr);
+        vkFreeMemory(mainDevice.logicalDevice, vpUniformBufferMemory[i], nullptr);
+        vkDestroyBuffer(mainDevice.logicalDevice, modelDUniformBuffer[i], nullptr);
+        vkFreeMemory(mainDevice.logicalDevice, modelDUniformBufferMemory[i], nullptr);
+    }
     for (size_t i = 0; i < meshList.size(); i++)
     {
         meshList[i].destroyBuffers();
@@ -169,12 +192,16 @@ void VulkanRenderer::cleanup()
     vkDestroyInstance(instance, nullptr);
 }
 
+void VulkanRenderer::updateModel(int modelId, glm::mat4 newModel)
+{
+    if (modelId >= meshList.size()) return;
+    meshList[modelId].setModel(newModel);
+}
+
 VulkanRenderer::~VulkanRenderer()
 {
 }
-
 //====================================================================================================
-
 //1-创建实例
 void VulkanRenderer::createInstance_1()
 {
@@ -250,7 +277,6 @@ void VulkanRenderer::createInstance_1()
         throw std::runtime_error("Failed to create Vulkan instance!");
     }
 }
-
 //2-调试
 void VulkanRenderer::createDebugCallback_2()
 {
@@ -269,7 +295,6 @@ void VulkanRenderer::createDebugCallback_2()
         throw std::runtime_error("Failed to create Debug Callback!");
     }
 }
-
 //3-创建表面
 void VulkanRenderer::createSurface_3()
 {
@@ -279,7 +304,6 @@ void VulkanRenderer::createSurface_3()
         throw std::runtime_error("Failed to create window surface!");
     }
 }
-
 //2-获取物理设备
 void VulkanRenderer::getPhysicalDevice_4()
 {
@@ -309,7 +333,6 @@ void VulkanRenderer::getPhysicalDevice_4()
         throw std::runtime_error("No suitable Vulkan physical device found!");
     }
 }
-
 //5-创建逻辑设备
 void VulkanRenderer::createLogicalDevice_5()
 {
@@ -354,7 +377,6 @@ void VulkanRenderer::createLogicalDevice_5()
     vkGetDeviceQueue(mainDevice.logicalDevice, indices.graphicsFamily, 0, &graphicsQueue);
     vkGetDeviceQueue(mainDevice.logicalDevice, indices.presentFamily, 0, &presentationQueue);
 }
-
 //6-创建交换链
 void VulkanRenderer::createSwapChain_6()
 {
@@ -431,7 +453,6 @@ void VulkanRenderer::createSwapChain_6()
     //获取交换链图像（先计数，再取值）
     uint32_t swapChainImageCount;
     vkGetSwapchainImagesKHR(mainDevice.logicalDevice,swapchain, &swapChainImageCount,nullptr);
-
     std::vector<VkImage>images(swapChainImageCount);
     vkGetSwapchainImagesKHR(mainDevice.logicalDevice,swapchain,&swapChainImageCount,images.data());
 
@@ -446,7 +467,6 @@ void VulkanRenderer::createSwapChain_6()
     }
 
 }
-
 //7-创建渲染Pass
 void VulkanRenderer::createRenderPass_7()
 {
@@ -513,7 +533,6 @@ void VulkanRenderer::createRenderPass_7()
     }
 
 }
-
 //8-创建图形管线
 void VulkanRenderer::createGraphicsPipeline_8()
 {
@@ -652,8 +671,6 @@ void VulkanRenderer::createGraphicsPipeline_8()
     colourState.dstAlphaBlendFactor =VK_BLEND_FACTOR_ZERO;
     colourState.alphaBlendOp=VK_BLEND_OP_ADD;
 
-
-
     VkPipelineColorBlendStateCreateInfo colourBlendingCreateInfo = {};
     colourBlendingCreateInfo.sType =VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
     colourBlendingCreateInfo.logicOpEnable =VK_FALSE;
@@ -678,23 +695,21 @@ void VulkanRenderer::createGraphicsPipeline_8()
     }
 
 
-
-
     // -- 图形管线创建 --
     VkGraphicsPipelineCreateInfo pipelineCreateInfo = {};
     pipelineCreateInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
     pipelineCreateInfo.stageCount = 2;
-    pipelineCreateInfo.pStages =shaderStages;
-    pipelineCreateInfo.pVertexInputState =&vertexInputCreateInfo;
+    pipelineCreateInfo.pStages = shaderStages;
+    pipelineCreateInfo.pVertexInputState = &vertexInputCreateInfo;
     pipelineCreateInfo.pInputAssemblyState = &inputAssembly;
-    pipelineCreateInfo.pViewportState =&viewportStateCreateInfo;
-    pipelineCreateInfo.pDynamicState =nullptr;
-    pipelineCreateInfo.pRasterizationState =&rasterizerCreateInfo;
-    pipelineCreateInfo.pMultisampleState =&multisamplingCreateInfo;
-    pipelineCreateInfo.pColorBlendState =&colourBlendingCreateInfo;
-    pipelineCreateInfo.pDepthStencilState =nullptr;
-    pipelineCreateInfo.layout =pipelineLayout;
-    pipelineCreateInfo.renderPass =renderPass;
+    pipelineCreateInfo.pViewportState = &viewportStateCreateInfo;
+    pipelineCreateInfo.pDynamicState = nullptr;
+    pipelineCreateInfo.pRasterizationState = &rasterizerCreateInfo;
+    pipelineCreateInfo.pMultisampleState = &multisamplingCreateInfo;
+    pipelineCreateInfo.pColorBlendState = &colourBlendingCreateInfo;
+    pipelineCreateInfo.pDepthStencilState = nullptr;
+    pipelineCreateInfo.layout = pipelineLayout;
+    pipelineCreateInfo.renderPass = renderPass;
     pipelineCreateInfo.subpass = 0;
 
     pipelineCreateInfo.basePipelineHandle =VK_NULL_HANDLE;
@@ -711,7 +726,6 @@ void VulkanRenderer::createGraphicsPipeline_8()
     vkDestroyShaderModule(mainDevice.logicalDevice,fragmentShaderModule,nullptr);
     vkDestroyShaderModule(mainDevice.logicalDevice,vertexShaderModule,nullptr);
 }
-
 //9-帧缓冲
 void VulkanRenderer::createFramebuffers_9()
 {
@@ -726,12 +740,12 @@ void VulkanRenderer::createFramebuffers_9()
 
         VkFramebufferCreateInfo framebufferCreateInfo= {};
         framebufferCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-        framebufferCreateInfo.renderPass =renderPass;
+        framebufferCreateInfo.renderPass = renderPass;
         framebufferCreateInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
         framebufferCreateInfo.pAttachments = attachments.data();// 附件列表（与渲染通道一一对应）
         framebufferCreateInfo.width = swapChainExtent.width;    // 纹理缓冲区宽度
-        framebufferCreateInfo.height =swapChainExtent.height;   // 纹理缓冲区高度
-        framebufferCreateInfo.layers =1;                        // 纹理缓冲区图层
+        framebufferCreateInfo.height = swapChainExtent.height;   // 纹理缓冲区高度
+        framebufferCreateInfo.layers = 1;                        // 纹理缓冲区图层
 
         VkResult result = vkCreateFramebuffer(mainDevice.logicalDevice,&framebufferCreateInfo,nullptr,&swapChainFramebuffers[i]);
         if (result != VK_SUCCESS)
@@ -740,13 +754,11 @@ void VulkanRenderer::createFramebuffers_9()
         }
     }
 }
-
 //10-命令池
 void VulkanRenderer::createCommandPool_10()
 {
     // 从设备获取队列家族的索引
     QueueFamilyIndices_u queueFamilyIndices = getQueueFamilies_56A_(mainDevice.physicalDevice);
-
 
     VkCommandPoolCreateInfo poolInfo= {};
     poolInfo.sType =VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -758,9 +770,7 @@ void VulkanRenderer::createCommandPool_10()
     {
         throw std::runtime_error("Failed to create a Command Pool!");
     }
-
 }
-
 //11-命令缓冲区
 void VulkanRenderer::createCommandBuffers_11()
 {
@@ -780,7 +790,6 @@ void VulkanRenderer::createCommandBuffers_11()
         throw std::runtime_error("Failed to allocate Command Buffers!");
     }
 }
-
 //12-录制命令
 void VulkanRenderer::recordCommands_12()
 {
@@ -836,7 +845,6 @@ void VulkanRenderer::recordCommands_12()
         }
     }
 }
-
 //13-信号量和栅栏
 void VulkanRenderer::createSynchronisation_13()
 {
@@ -864,8 +872,82 @@ void VulkanRenderer::createSynchronisation_13()
     }
 }
 
-//====================================================================================================
+void VulkanRenderer::createUniformBuffers()
+{
+    // ViewProjection buffer size
+    VkDeviceSize vpBufferSize = sizeof(UboViewProjection);
 
+    // Model buffer size
+    VkDeviceSize modelBufferSize = modelUniformAlignment * MAX_OBJECTS;
+
+    // One uniform buffer for each image (and by extension, command buffer)
+    vpUniformBuffer.resize(swapChainImages.size());
+    vpUniformBufferMemory.resize(swapChainImages.size());
+    modelDUniformBuffer.resize(swapChainImages.size());
+    modelDUniformBufferMemory.resize(swapChainImages.size());
+
+    // Create Uniform buffers
+    for (size_t i = 0; i < swapChainImages.size(); i++)
+    {
+        createBuffer(mainDevice.physicalDevice, mainDevice.logicalDevice, vpBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &vpUniformBuffer[i], &vpUniformBufferMemory[i]);
+
+        createBuffer(mainDevice.physicalDevice, mainDevice.logicalDevice, modelBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &modelDUniformBuffer[i], &modelDUniformBufferMemory[i]);
+    }
+}
+
+void VulkanRenderer::createDescriptorPool()
+{
+}
+
+void VulkanRenderer::createDescriptorSets()
+{
+}
+
+void VulkanRenderer::createDescriptorSetLayout()
+{
+    // UboViewProjection Binding Info
+    VkDescriptorSetLayoutBinding vpLayoutBinding = {};
+    vpLayoutBinding.binding = 0;											// Binding point in shader (designated by binding number in shader)
+    vpLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;	// Type of descriptor (uniform, dynamic uniform, image sampler, etc)
+    vpLayoutBinding.descriptorCount = 1;									// Number of descriptors for binding
+    vpLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;				// Shader stage to bind to
+    vpLayoutBinding.pImmutableSamplers = nullptr;							// For Texture: Can make sampler data unchangeable (immutable) by specifying in layout
+
+    // Model Binding Info
+    VkDescriptorSetLayoutBinding modelLayoutBinding = {};
+    modelLayoutBinding.binding = 1;
+    modelLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+    modelLayoutBinding.descriptorCount = 1;
+    modelLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    modelLayoutBinding.pImmutableSamplers = nullptr;
+
+    std::vector<VkDescriptorSetLayoutBinding> layoutBindings = { vpLayoutBinding, modelLayoutBinding };
+
+    // Create Descriptor Set Layout with given bindings
+    VkDescriptorSetLayoutCreateInfo layoutCreateInfo = {};
+    layoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutCreateInfo.bindingCount = static_cast<uint32_t>(layoutBindings.size());	// Number of binding infos
+    layoutCreateInfo.pBindings = layoutBindings.data();								// Array of binding infos
+
+    // Create Descriptor Set Layout
+    VkResult result = vkCreateDescriptorSetLayout(mainDevice.logicalDevice, &layoutCreateInfo, nullptr, &descriptorSetLayout);
+    if (result != VK_SUCCESS)
+    {
+        throw std::runtime_error("Failed to create a Descriptor Set Layout!");
+    }
+}
+
+void VulkanRenderer::updateUniformBuffers(uint32_t imageIndex)
+{
+}
+
+void VulkanRenderer::allocateDynamicBufferTransferSpace()
+{
+}
+
+//====================================================================================================
 //检查实例拓展
 bool VulkanRenderer::checkInstanceExtensionSupport_1_(std::vector<const char*>* checkExtensions)
 {
@@ -896,7 +978,6 @@ bool VulkanRenderer::checkInstanceExtensionSupport_1_(std::vector<const char*>* 
     }
     return true;
 }
-
 //检查驱动扩展
 bool VulkanRenderer::checkDeviceExtensionSupport_A_(VkPhysicalDevice device)
 {
@@ -931,7 +1012,6 @@ bool VulkanRenderer::checkDeviceExtensionSupport_A_(VkPhysicalDevice device)
     }
     return true;
 }
-
 //Null
 bool VulkanRenderer::checkValidationLayerSupport()
 {
@@ -963,7 +1043,6 @@ bool VulkanRenderer::checkValidationLayerSupport()
     }
     return true;
 }
-
 //检查合格设备
 bool VulkanRenderer::checkDeviceSuitable_4_A(VkPhysicalDevice device)
 {
@@ -987,9 +1066,7 @@ bool VulkanRenderer::checkDeviceSuitable_4_A(VkPhysicalDevice device)
 
     return indices.isVlid() && extensionsSupported && swapChainValid;
 }
-
 //====================================================================================================
-
 //— 查某块设备的队列家族，定位支持图形命令的 graphicsFamily 和支持呈现到窗口的 presentFamily 索引
 QueueFamilyIndices_u VulkanRenderer::getQueueFamilies_56A_(VkPhysicalDevice device)
 {
@@ -1029,7 +1106,6 @@ QueueFamilyIndices_u VulkanRenderer::getQueueFamilies_56A_(VkPhysicalDevice devi
     }
     return indices;
 }
-
 //— 查该设备在当前表面上的能力：可用像素格式、呈现模式和分辨率范围，后面挑选参数靠它
 SwapChainDetails_u VulkanRenderer::getSwapChainDetails_A6(VkPhysicalDevice device)
 {
@@ -1062,9 +1138,7 @@ SwapChainDetails_u VulkanRenderer::getSwapChainDetails_A6(VkPhysicalDevice devic
 
     return swapChainDetails;
 }
-
 //====================================================================================================
-
 //从可用格式里挑最合适的：优先 R8G8B8A8 / B8G8R8A8 加 sRGB 色彩空间，否则退回第一个
 VkSurfaceFormatKHR VulkanRenderer::chooseBestSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& formats)
 {
@@ -1124,9 +1198,7 @@ VkExtent2D VulkanRenderer::chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capa
         return actualExtent;
     }
 }
-
 //====================================================================================================
-
 //为图像创建 2D 视图。交换链拿到的是裸图像，必须包一层视图才能被帧缓冲和管线使用
 VkImageView VulkanRenderer::createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags)
 {
@@ -1177,5 +1249,4 @@ VkShaderModule VulkanRenderer::createShaderModule(const std::vector<char>& code)
     }
     return shaderModule;
 };
-
 //====================================================================================================

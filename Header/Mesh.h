@@ -4,11 +4,17 @@
 
 #pragma once
 
-
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <vector>
+
 #include "Utilities.h"
+
+struct UboModel {
+    glm::mat4 model;
+};
 
 class Mesh
 {
@@ -18,6 +24,9 @@ public:
         VkQueue transferQueue, VkCommandPool transferCommandPool,
         std::vector<Vertex_u> * vertices, std::vector<uint32_t> * indices);
 
+    void setModel(glm::mat4 newModel);
+    UboModel getModel();
+    
     int getVertexCount();
     VkBuffer getVertexBuffer();
 
@@ -29,6 +38,8 @@ public:
     ~Mesh();
 
 private:
+    UboModel uboModel;
+
     int vertexCount;
     VkBuffer vertexBuffer;
     VkDeviceMemory vertexBufferMemory;

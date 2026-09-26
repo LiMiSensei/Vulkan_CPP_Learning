@@ -12,7 +12,7 @@
 
 
 const int MAX_FRAME_DRAWS = 3;
-
+const int MAX_OBJECTS = 2;
 //逻辑设备相关
 const std::vector<const char*> deviceExtensions_u = {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME,

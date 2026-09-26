@@ -1,18 +1,20 @@
-//
-// Created by LiMi on 2026/9/14.
-//
+#pragma once
 
-#ifndef VULKAN_CPP_LEARNING_VULKANRENDERER_H
-#define VULKAN_CPP_LEARNING_VULKANRENDERER_H
+#define GLFW_INCLUDE_VULKAN
+#include <GLFW/glfw3.h>
 
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
-// windows.h 会定义 min/max 宏，破坏 std::numeric_limits<T>::max() 等写法，需在包含前屏蔽
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
+#include <stdexcept>
+#include <vector>
+#include <set>
+#include <algorithm>
+#include <array>
 
-#define VK_USE_PLATFORM_WIN32_KHR //#include <windows.h> //#include "vulkan_win32.h"
-
+#include "Mesh.h"
+#include "VulkanValidation.h"
+#include "Utilities.h"
 
 
 
@@ -26,8 +28,6 @@
 
 #include "Utilities.h"
 
-class Mesh;
-
 class VulkanRenderer {
 public:
     VulkanRenderer();
@@ -35,14 +35,17 @@ public:
     int init(GLFWwindow* window);
     void deaw();
     void cleanup();
-
+    void updateModel(int modelId, glm::mat4 newModel);
     ~VulkanRenderer();
 
 private:
     GLFWwindow* window;
     int currentFrame = 0;
     const bool validationEnabled = true;
-
+    struct UboViewProjection {
+        glm::mat4 projection;
+        glm::mat4 view;
+    } uboViewProjection;
 
 
 
@@ -85,6 +88,17 @@ private:
     std::vector<VkSemaphore> renderFinished;        //13-信号量和栅栏
     std::vector<VkFence> drawFences;                //13-信号量和栅栏
 
+    VkDeviceSize minUniformBufferOffset;
+    size_t modelUniformAlignment;
+    UboModel * modelTransferSpace;
+    VkDescriptorPool descriptorPool;
+    VkDescriptorSetLayout descriptorSetLayout;
+
+    std::vector<VkBuffer> vpUniformBuffer;
+    std::vector<VkDeviceMemory> vpUniformBufferMemory;
+
+    std::vector<VkBuffer> modelDUniformBuffer;
+    std::vector<VkDeviceMemory> modelDUniformBufferMemory;
 
     //--Vulkan函数：
     void createInstance_1();            //-创建函数
@@ -103,9 +117,12 @@ private:
     void recordCommands_12();           //-录制命令
 
     void createSynchronisation_13();    //-创建信号量
-
-
-
+    void createUniformBuffers();
+    void createDescriptorPool();
+    void createDescriptorSets();
+    void createDescriptorSetLayout();
+    void updateUniformBuffers(uint32_t imageIndex);
+    void allocateDynamicBufferTransferSpace();
     //ToDo:--检查拓展------------------------------------------------------------------------------------
     bool checkInstanceExtensionSupport_1_(std::vector<const char *>* checkExtensions);  //-检查实例拓展
     bool checkDeviceExtensionSupport_A_(VkPhysicalDevice device);                       // 检查设备拓展
@@ -134,4 +151,3 @@ private:
 };
 
 
-#endif //VULKAN_CPP_LEARNING_VULKANRENDERER_H
