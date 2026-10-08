@@ -1,16 +1,21 @@
 cmake_minimum_required(VERSION 4.3)
-project(Vulkan_CPP_Learning)
+project(VulkanTest)
 
 set(CMAKE_CXX_STANDARD 20)
 
-# UTF-8 encoding for MSVC
-add_compile_options("$<$<C_COMPILER_ID:MSVC>:/utf-8>")
-add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
-
+set(BUILD_SHARED_LIBS OFF)
 
 # 添加源码库文件
 add_subdirectory(Library/glfw-3.5.1)
 add_subdirectory(Library/glm-1.0.3)
+
+# Assimp：加载 FBX / OBJ / glTF 等模型文件（源码方式一起编译）
+set(ASSIMP_BUILD_TESTS OFF)             # 默认 ON，会连带编 googletest，很慢
+set(ASSIMP_BUILD_ASSIMP_TOOLS OFF)
+set(ASSIMP_BUILD_SAMPLES OFF)
+set(ASSIMP_INSTALL OFF)                 # 以 subdirectory 方式使用，不需要安装规则
+set(ASSIMP_WARNINGS_AS_ERRORS OFF)      # 不让第三方代码的警告变成编译错误
+add_subdirectory(Library/assimp-6.0.5)
 
 # 查找系统SDK
 find_package(Vulkan REQUIRED)
@@ -26,26 +31,57 @@ set(IMGUI_SOURCES
         ${IMGUI_DIR}/imgui_widgets.cpp
         ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
         ${IMGUI_DIR}/backends/imgui_impl_vulkan.cpp
+
 )
 
 
-#可执行文件
-add_executable(Vulkan_CPP_Learning
+#可执行文件（单文件渲染，不再编译 Header 目录）
+add_executable(VulkanTest
         ${IMGUI_SOURCES}
         main.cpp
-        Header/Utilities.h
-        Header/VulkanValidation.h
-        Header/VulkanRenderer.cpp
-        Header/VulkanRenderer.h
-        Header/Mesh.h
-        Header/Mesh.cpp
+        Header/Other.h
+        Test/TestRender.h
+        Test/TestRender.cpp
+        Test/Test_ImguiVulaknBackend.cpp
+        Test/Test_ImguiVulaknBackend.h
+        Test/GUI_ShaderSystem.cpp
+        Test/GUI_ShaderSystem.h
+        Test/GUI_Hierarchy.cpp
+        Test/GUI_Hierarchy.h
+        Test/GUI_Mesh.cpp
+        Test/GUI_Mesh.h
 )
 
 #编译器
-target_include_directories(Vulkan_CPP_Learning PRIVATE ${IMGUI_DIR} ${IMGUI_DIR}/backends ${VULKAN_SDK}/Include)
+target_include_directories(VulkanTest PRIVATE
+        ${IMGUI_DIR}
+        ${IMGUI_DIR}/backends
+        ${VULKAN_SDK}/Include
+        "$ENV{VULKAN_SDK}/Include/dxc"
+)
 
-# 链接器
-target_link_libraries(Vulkan_CPP_Learning PRIVATE glfw glm::glm Vulkan::Vulkan ${DXCOMPILER_LIB})
+#链接器
+target_link_libraries(VulkanTest PRIVATE
+        glfw
+        glm::glm
+        Vulkan::Vulkan
+        assimp::assimp
+        "$ENV{VULKAN_SDK}/Lib/dxcompiler.lib")
+
+
+#拷贝文件
+add_custom_command(TARGET VulkanTest POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_SOURCE_DIR}/Library/VulkanTools/dxcompiler.dll"
+                "$<TARGET_FILE_DIR:VulkanTest>"
+        COMMENT "Copying dxcompiler.dll next to the executable")
+
+add_custom_command(TARGET VulkanTest POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+                ${CMAKE_SOURCE_DIR}/shaders
+                $<TARGET_FILE_DIR:VulkanTest>/shaders
+        COMMENT "Copying shaders to $<TARGET_FILE_DIR:VulkanTest>/shaders")
+
 # 如果Win32编译
 if (WIN32)
     target_link_libraries(${PROJECT_NAME} PRIVATE
@@ -55,14 +91,8 @@ if (WIN32)
 endif ()
 
 
-
-add_custom_command(TARGET Vulkan_CPP_Learning POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:Vulkan_CPP_Learning>/shaders
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                ${CMAKE_SOURCE_DIR}/shaders/vert.spv
-                ${CMAKE_SOURCE_DIR}/shaders/frag.spv
-                $<TARGET_FILE_DIR:Vulkan_CPP_Learning>/shaders
-        COMMENT "Copying shaders (vert.spv, frag.spv) next to executable"
-)
-
+# 源码是 UTF-8（注释里有中文），只给本项目加 /utf-8
+if (MSVC)
+    target_compile_options(VulkanTest PRIVATE /utf-8)
+endif()
 

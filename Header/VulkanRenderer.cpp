@@ -9,6 +9,10 @@
 #include "Mesh.h"
 #include "VulkanValidation.h"
 
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_vulkan.h"
+
 VulkanRenderer::VulkanRenderer()
 {
 }
@@ -26,17 +30,17 @@ int VulkanRenderer::init(GLFWwindow* window)
         createSwapChain_6();        //创建交换链
         createRenderPass_7();       //创建Pass
 
-        createDescriptorSetLayout();
+        createDescriptorSetLayout_8();
 
-        createGraphicsPipeline_8(); //创建图形管线
+        createGraphicsPipeline_9(); //创建图形管线
 
-        createFramebuffers_9();        //帧缓冲
-        createCommandPool_10();        //命令池
+        createFramebuffers_10();        //帧缓冲
+        createCommandPool_11();        //命令池
 
         //=================================================================
-        uboViewProjection.projection = glm::perspective(glm::radians(45.0f), (float)swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 100.0f);
-        uboViewProjection.view = glm::lookAt(glm::vec3(0.0f, 0.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-        uboViewProjection.projection[1][1] *= -1;
+        ubo_VP.projection = glm::perspective(glm::radians(45.0f), (float)swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 100.0f);
+        ubo_VP.view = glm::lookAt(glm::vec3(0.0f, 0.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+        ubo_VP.projection[1][1] *= -1;
 
         std::vector<Vertex_u> meshVertices = {
             { { -0.45, -0.4, 0.0 },{ 1.0f, 0.0f, 0.0f } },	// 0
@@ -58,27 +62,30 @@ int VulkanRenderer::init(GLFWwindow* window)
             2, 3, 0
         };
 
-        Mesh firstMesh = Mesh(mainDevice.physicalDevice, mainDevice.logicalDevice,
+        Mesh firstMesh = Mesh(physicalDevice, logicalDevice,
             graphicsQueue, graphicsCommandPool,
             &meshVertices, &meshIndices);
-        Mesh secondMesh = Mesh(mainDevice.physicalDevice, mainDevice.logicalDevice,
+        Mesh secondMesh = Mesh(physicalDevice, logicalDevice,
             graphicsQueue, graphicsCommandPool,
             &meshVertices2, &meshIndices);
 
         meshList.push_back(firstMesh);
         meshList.push_back(secondMesh);
         //=================================================================
-
-        createCommandBuffers_11();     //命令缓冲区
-
+        createCommandBuffers_12();     //命令缓冲区
         //=================================================================
 
-        allocateDynamicBufferTransferSpace();
+        allocateDynamicBufferTransferSpace_13();
+        createUniformBuffers_14();
+        createDescriptorPool_15();
+        createDescriptorSets_16();
 
         //=================================================================
-        recordCommands_12();           //录制命令
+        createSynchronisation_18();    //信号量和栅栏
 
-        createSynchronisation_13();    //信号量和栅栏
+        //=================================================================
+        initImGui();                   //初始化 ImGui（需要用到上面创建好的 Vulkan 资源）
+        // 命令缓冲区在每帧 draw() 时才会录制（因为要写入每帧都会变化的 ImGui 绘制数据）
     }
     catch (const std::runtime_error& e)
     {
@@ -88,36 +95,56 @@ int VulkanRenderer::init(GLFWwindow* window)
 
     return 0;
 }
-void VulkanRenderer::deaw()
-{
-	// -- GET NEXT IMAGE --
-	// Wait for given fence to signal (open) from last draw before continuing
-	vkWaitForFences(mainDevice.logicalDevice, 1, &drawFences[currentFrame], VK_TRUE, std::numeric_limits<uint64_t>::max());
-	// Manually reset (close) fences
-	vkResetFences(mainDevice.logicalDevice, 1, &drawFences[currentFrame]);
 
-	// Get index of next image to be drawn to, and signal semaphore when ready to be drawn to
+void VulkanRenderer::draw()
+{
+    // -- 构建本帧界面 --
+    ImGui_ImplVulkan_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+    drawImGui();        // 界面内容
+    ImGui::Render();    // 生成绘制数据，稍后由 recordCommands_17 录制进命令缓冲区
+
+    // -- 获取下一张图像 --
+    // 等待上一次绘制后给定的围栏信号（打开）再继续
+	vkWaitForFences(logicalDevice, 1, &drawFences[currentFrame], VK_TRUE, std::numeric_limits<uint64_t>::max());
+    //手动重置（关闭）围栏
+	vkResetFences(logicalDevice, 1, &drawFences[currentFrame]);
+
+	// 获取下一张要绘制图像的索引，并在准备好绘制时发送信号量
 	uint32_t imageIndex;
-	vkAcquireNextImageKHR(mainDevice.logicalDevice, swapchain, std::numeric_limits<uint64_t>::max(), imageAvailable[currentFrame], VK_NULL_HANDLE, &imageIndex);
+	vkAcquireNextImageKHR(logicalDevice, swapchain, std::numeric_limits<uint64_t>::max(), imageAvailable[currentFrame], VK_NULL_HANDLE, &imageIndex);
 
     updateUniformBuffers(imageIndex);
 
-	// -- SUBMIT COMMAND BUFFER TO RENDER --
-	// Queue submission information
+	// -- 重新录制命令缓冲区 --
+	// ImGui 的绘制数据每帧都会变化，所以命令缓冲区必须每帧重新录制。
+	// 如果上一次使用该命令缓冲区的帧还没有执行完，就先等待它对应的栅栏，避免重录正在执行的命令缓冲区。
+	if (commandBufferFences[imageIndex] != VK_NULL_HANDLE &&
+		commandBufferFences[imageIndex] != drawFences[currentFrame])
+	{
+		vkWaitForFences(logicalDevice, 1, &commandBufferFences[imageIndex], VK_TRUE, std::numeric_limits<uint64_t>::max());
+	}
+	recordCommands_17(imageIndex);
+	// 记录该命令缓冲区本次提交所使用的栅栏，下次重录前要等它
+	commandBufferFences[imageIndex] = drawFences[currentFrame];
+
+	// -- 将命令缓冲区提交以进行渲染 --
+	// 队列提交信息
 	VkSubmitInfo submitInfo = {};
 	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-	submitInfo.waitSemaphoreCount = 1;										// Number of semaphores to wait on
-	submitInfo.pWaitSemaphores = &imageAvailable[currentFrame];				// List of semaphores to wait on
+	submitInfo.waitSemaphoreCount = 1;										// 等待的信号量数量
+	submitInfo.pWaitSemaphores = &imageAvailable[currentFrame];				// 等待的信号量列表
 	VkPipelineStageFlags waitStages[] = {
 		VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
 	};
-	submitInfo.pWaitDstStageMask = waitStages;						        // Stages to check semaphores at
-	submitInfo.commandBufferCount = 1;								        // Number of command buffers to submit
-	submitInfo.pCommandBuffers = &commandBuffers[imageIndex];		        // Command buffer to submit
-	submitInfo.signalSemaphoreCount = 1;							        // Number of semaphores to signal
-	submitInfo.pSignalSemaphores = &renderFinished[currentFrame];	        // Semaphores to signal when command buffer finishes
+	submitInfo.pWaitDstStageMask = waitStages;						        // 检查信号量的阶段
+	submitInfo.commandBufferCount = 1;								        // 提交的命令缓冲区数量
+	submitInfo.pCommandBuffers = &commandBuffers[imageIndex];		        // 要提交的命令缓冲区
+	submitInfo.signalSemaphoreCount = 1;							        // 要发出信号的信号量数量
+	submitInfo.pSignalSemaphores = &renderFinished[currentFrame];	        // 命令缓冲区完成时要发出信号的信号量
 
-	// Submit command buffer to queue
+	// 将命令缓冲区提交到队列
 	VkResult result = vkQueueSubmit(graphicsQueue, 1, &submitInfo, drawFences[currentFrame]);
 	if (result != VK_SUCCESS)
 	{
@@ -125,40 +152,40 @@ void VulkanRenderer::deaw()
 	}
 
 
-	// -- PRESENT RENDERED IMAGE TO SCREEN --
+	//-- 将当前图像显示在屏幕上 --
 	VkPresentInfoKHR presentInfo = {};
 	presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-	presentInfo.waitSemaphoreCount = 1;										// Number of semaphores to wait on
-	presentInfo.pWaitSemaphores = &renderFinished[currentFrame];			// Semaphores to wait on
-	presentInfo.swapchainCount = 1;											// Number of swapchains to present to
-	presentInfo.pSwapchains = &swapchain;									// Swapchains to present images to
-	presentInfo.pImageIndices = &imageIndex;								// Index of images in swapchains to present
+	presentInfo.waitSemaphoreCount = 1;										// 等待的信号量数量
+	presentInfo.pWaitSemaphores = &renderFinished[currentFrame];			// 要等待的信号量
+	presentInfo.swapchainCount = 1;											// 需要呈现的交换链数量
+	presentInfo.pSwapchains = &swapchain;									// 用于呈现图像的交换链
+	presentInfo.pImageIndices = &imageIndex;								// 在交换链中呈现图像的索引
 
-	// Present image
+	// 当前图片
 	result = vkQueuePresentKHR(presentationQueue, &presentInfo);
 	if (result != VK_SUCCESS)
 	{
 		throw std::runtime_error("Failed to present Image!");
 	}
 
-	// Get next frame (use % MAX_FRAME_DRAWS to keep value below MAX_FRAME_DRAWS)
+	// 获取下一帧（使用 % MAX_FRAME_DRAWS 以确保值低于 MAX_FRAME_DRAWS）
 	currentFrame = (currentFrame + 1) % MAX_FRAME_DRAWS;
 }
 void VulkanRenderer::cleanup()
 {
-    // Wait until no actions being run on device before destroying
-    vkDeviceWaitIdle(mainDevice.logicalDevice);
-
+    // 在销毁前，请等待设备上没有运行任何操作。
+    vkDeviceWaitIdle(logicalDevice);
+    destroyImGui();
     _aligned_free(modelTransferSpace);
 
-    vkDestroyDescriptorPool(mainDevice.logicalDevice, descriptorPool, nullptr);
-    vkDestroyDescriptorSetLayout(mainDevice.logicalDevice, descriptorSetLayout, nullptr);
+    vkDestroyDescriptorPool(logicalDevice, descriptorPool, nullptr);
+    vkDestroyDescriptorSetLayout(logicalDevice, descriptorSetLayout, nullptr);
     for (size_t i = 0; i < swapChainImages.size(); i++)
     {
-        vkDestroyBuffer(mainDevice.logicalDevice, vpUniformBuffer[i], nullptr);
-        vkFreeMemory(mainDevice.logicalDevice, vpUniformBufferMemory[i], nullptr);
-        vkDestroyBuffer(mainDevice.logicalDevice, modelDUniformBuffer[i], nullptr);
-        vkFreeMemory(mainDevice.logicalDevice, modelDUniformBufferMemory[i], nullptr);
+        vkDestroyBuffer(logicalDevice, vpUniformBuffer[i], nullptr);
+        vkFreeMemory(logicalDevice, vpUniformBufferMemory[i], nullptr);
+        vkDestroyBuffer(logicalDevice, modelDUniformBuffer[i], nullptr);
+        vkFreeMemory(logicalDevice, modelDUniformBufferMemory[i], nullptr);
     }
     for (size_t i = 0; i < meshList.size(); i++)
     {
@@ -166,25 +193,25 @@ void VulkanRenderer::cleanup()
     }
     for (size_t i = 0; i < MAX_FRAME_DRAWS; i++)
     {
-        vkDestroySemaphore(mainDevice.logicalDevice, renderFinished[i], nullptr);
-        vkDestroySemaphore(mainDevice.logicalDevice, imageAvailable[i], nullptr);
-        vkDestroyFence(mainDevice.logicalDevice, drawFences[i], nullptr);
+        vkDestroySemaphore(logicalDevice, renderFinished[i], nullptr);
+        vkDestroySemaphore(logicalDevice, imageAvailable[i], nullptr);
+        vkDestroyFence(logicalDevice, drawFences[i], nullptr);
     }
-    vkDestroyCommandPool(mainDevice.logicalDevice, graphicsCommandPool, nullptr);
+    vkDestroyCommandPool(logicalDevice, graphicsCommandPool, nullptr);
     for (auto framebuffer : swapChainFramebuffers)
     {
-        vkDestroyFramebuffer(mainDevice.logicalDevice, framebuffer, nullptr);
+        vkDestroyFramebuffer(logicalDevice, framebuffer, nullptr);
     }
-    vkDestroyPipeline(mainDevice.logicalDevice, graphicsPipeline, nullptr);
-    vkDestroyPipelineLayout(mainDevice.logicalDevice, pipelineLayout, nullptr);
-    vkDestroyRenderPass(mainDevice.logicalDevice, renderPass, nullptr);
+    vkDestroyPipeline(logicalDevice, graphicsPipeline, nullptr);
+    vkDestroyPipelineLayout(logicalDevice, pipelineLayout, nullptr);
+    vkDestroyRenderPass(logicalDevice, renderPass, nullptr);
     for (auto image : swapChainImages)
     {
-        vkDestroyImageView(mainDevice.logicalDevice, image.imageView, nullptr);
+        vkDestroyImageView(logicalDevice, image.imageView, nullptr);
     }
-    vkDestroySwapchainKHR(mainDevice.logicalDevice, swapchain, nullptr);
+    vkDestroySwapchainKHR(logicalDevice, swapchain, nullptr);
     vkDestroySurfaceKHR(instance, surface, nullptr);
-    vkDestroyDevice(mainDevice.logicalDevice, nullptr);
+    vkDestroyDevice(logicalDevice, nullptr);
     if (validationEnabled)
     {
         DestroyDebugReportCallbackEXT(instance, callback, nullptr);
@@ -192,6 +219,55 @@ void VulkanRenderer::cleanup()
     vkDestroyInstance(instance, nullptr);
 }
 
+//========= imgui ============
+void VulkanRenderer::initImGui()
+{
+    ImGui::CreateContext();
+    ImGui::StyleColorsDark();
+
+    // 平台后端（GLFW）：因为用 Vulkan 渲染，所以必须用 ForVulkan
+    ImGui_ImplGlfw_InitForVulkan(window, true);
+
+    // 渲染后端（Vulkan）：直接使用渲染器已经创建好的 Vulkan 资源
+    ImGui_ImplVulkan_InitInfo initInfo = {};
+    initInfo.Instance = instance;
+    initInfo.PhysicalDevice = physicalDevice;
+    initInfo.Device = logicalDevice;
+    initInfo.QueueFamily = static_cast<uint32_t>(getQueueFamilies_56A_(physicalDevice).graphicsFamily);
+    initInfo.Queue = graphicsQueue;
+    initInfo.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_SAMPLED_IMAGE_POOL_SIZE;    // 让后端自己创建描述符池
+    initInfo.MinImageCount = 2;                                                        // 至少为 2
+    initInfo.ImageCount = static_cast<uint32_t>(swapChainImages.size());
+    initInfo.PipelineInfoMain.RenderPass = renderPass;                                  // 与渲染器共用同一个渲染通道
+    initInfo.PipelineInfoMain.Subpass = 0;
+    initInfo.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+
+    if (!ImGui_ImplVulkan_Init(&initInfo))
+    {
+        throw std::runtime_error("Failed to initialize ImGui Vulkan backend!");
+    }
+}
+//关闭并销毁 ImGui（调用前需保证设备空闲）
+void VulkanRenderer::destroyImGui()
+{
+    ImGui_ImplVulkan_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
+}
+//界面内容
+void VulkanRenderer::drawImGui()
+{
+    ImGuiIO& io = ImGui::GetIO();
+
+    // 鼠标信息调试窗口
+    ImGui::Begin("Mouse Info");
+    ImGui::Text("Position: (%.1f, %.1f)", io.MousePos.x, io.MousePos.y);
+    ImGui::Text("Left Down: %s", io.MouseDown[0] ? "true" : "false");
+    ImGui::Text("Left Delta: (%.2f, %.2f)", io.MouseDelta.x, io.MouseDelta.y);
+    ImGui::Text("Wheel: %.1f  WheelH: %.1f", io.MouseWheel, io.MouseWheelH);
+    ImGui::End();
+}
+//===========================
 void VulkanRenderer::updateModel(int modelId, glm::mat4 newModel)
 {
     if (modelId >= meshList.size()) return;
@@ -304,7 +380,7 @@ void VulkanRenderer::createSurface_3()
         throw std::runtime_error("Failed to create window surface!");
     }
 }
-//2-获取物理设备
+//4-获取物理设备
 void VulkanRenderer::getPhysicalDevice_4()
 {
     uint32_t deviceCount = 0;
@@ -321,23 +397,22 @@ void VulkanRenderer::getPhysicalDevice_4()
     {
         if (checkDeviceSuitable_4_A(device))
         {
-            mainDevice.physicalDevice = device;
+            physicalDevice = device;
             break;
         }
     }
 
-    //如果没有找到合适的设备，physicalDevice 会保持为 VK_NULL_HANDLE。
-    //后续 vkCreateDevice / vkGetPhysicalDevice* 用空句柄会被驱动解引用，直接崩溃(0xC0000005)。
-    if (mainDevice.physicalDevice == VK_NULL_HANDLE)
-    {
-        throw std::runtime_error("No suitable Vulkan physical device found!");
-    }
+    // Get properties of our new device
+    VkPhysicalDeviceProperties deviceProperties;
+    vkGetPhysicalDeviceProperties(physicalDevice, &deviceProperties);
+
+    minUniformBufferOffset = deviceProperties.limits.minUniformBufferOffsetAlignment;
 }
 //5-创建逻辑设备
 void VulkanRenderer::createLogicalDevice_5()
 {
     //获取所选物理设备的队列家族索引
-    QueueFamilyIndices_u indices = getQueueFamilies_56A_(mainDevice.physicalDevice);
+    QueueFamilyIndices_u indices = getQueueFamilies_56A_(physicalDevice);
 
     // 用于队列创建信息的向量，以及用于家族索引的设置
     std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
@@ -368,20 +443,20 @@ void VulkanRenderer::createLogicalDevice_5()
     deviceCreateInfo.pEnabledFeatures = &deviceFeatures;
 
     //为给定的物理设备创建逻辑设备
-    VkResult result = vkCreateDevice(mainDevice.physicalDevice, &deviceCreateInfo, nullptr, &mainDevice.logicalDevice);
+    VkResult result = vkCreateDevice(physicalDevice, &deviceCreateInfo, nullptr, &logicalDevice);
     if (result != VK_SUCCESS)
     {
         throw std::runtime_error("Failed to create logical device!");
     }
     //队列与设备同时创建  因此我们希望处理队列。
-    vkGetDeviceQueue(mainDevice.logicalDevice, indices.graphicsFamily, 0, &graphicsQueue);
-    vkGetDeviceQueue(mainDevice.logicalDevice, indices.presentFamily, 0, &presentationQueue);
+    vkGetDeviceQueue(logicalDevice, indices.graphicsFamily, 0, &graphicsQueue);
+    vkGetDeviceQueue(logicalDevice, indices.presentFamily, 0, &presentationQueue);
 }
 //6-创建交换链
 void VulkanRenderer::createSwapChain_6()
 {
     //获取交换链详细信息，以便我们选择最佳设置
-    SwapChainDetails_u swapChainDetails = getSwapChainDetails_A6(mainDevice.physicalDevice);
+    SwapChainDetails_u swapChainDetails = getSwapChainDetails_A6(physicalDevice);
 
     //为我们的交换链找到最佳表面值
     VkSurfaceFormatKHR surfaceFormat = chooseBestSurfaceFormat(swapChainDetails.formats);
@@ -415,7 +490,7 @@ void VulkanRenderer::createSwapChain_6()
 
 
     // 获取队列家族索引
-    QueueFamilyIndices_u indices = getQueueFamilies_56A_(mainDevice.physicalDevice);
+    QueueFamilyIndices_u indices = getQueueFamilies_56A_(physicalDevice);
     // 如果图形和演示文稿家族不同，那么交换链必须允许图像在不同家族之间共享。
     if (indices.graphicsFamily !=indices.presentFamily)
     {
@@ -439,7 +514,7 @@ void VulkanRenderer::createSwapChain_6()
     swapChainCreateInfo.oldSwapchain = VK_NULL_HANDLE;
 
     //创建交换链
-    VkResult result = vkCreateSwapchainKHR(mainDevice.logicalDevice,&swapChainCreateInfo,nullptr,&swapchain);
+    VkResult result = vkCreateSwapchainKHR(logicalDevice,&swapChainCreateInfo,nullptr,&swapchain);
     if (result != VK_SUCCESS)
     {
         throw std::runtime_error("Failed to create a Swapchain!");
@@ -452,9 +527,9 @@ void VulkanRenderer::createSwapChain_6()
 
     //获取交换链图像（先计数，再取值）
     uint32_t swapChainImageCount;
-    vkGetSwapchainImagesKHR(mainDevice.logicalDevice,swapchain, &swapChainImageCount,nullptr);
+    vkGetSwapchainImagesKHR(logicalDevice,swapchain, &swapChainImageCount,nullptr);
     std::vector<VkImage>images(swapChainImageCount);
-    vkGetSwapchainImagesKHR(mainDevice.logicalDevice,swapchain,&swapChainImageCount,images.data());
+    vkGetSwapchainImagesKHR(logicalDevice,swapchain,&swapChainImageCount,images.data());
 
     for (VkImage image : images)
     {
@@ -515,7 +590,7 @@ void VulkanRenderer::createRenderPass_7()
     subpassDependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
     subpassDependencies[1].dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
     subpassDependencies[1].dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
-    subpassDependencies[0].dependencyFlags = 0;
+    subpassDependencies[1].dependencyFlags = 0;
 
     VkRenderPassCreateInfo renderPassCreateInfo = {};
     renderPassCreateInfo.sType =VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
@@ -526,15 +601,49 @@ void VulkanRenderer::createRenderPass_7()
     renderPassCreateInfo.dependencyCount =static_cast<uint32_t>(subpassDependencies.size());
     renderPassCreateInfo.pDependencies = subpassDependencies.data();
 
-    VkResult result = vkCreateRenderPass(mainDevice.logicalDevice, &renderPassCreateInfo,nullptr,&renderPass);
+    VkResult result = vkCreateRenderPass(logicalDevice, &renderPassCreateInfo,nullptr,&renderPass);
     if (result != VK_SUCCESS)
     {
         throw std::runtime_error("Failed to create a Render Pass!");
     }
 
 }
-//8-创建图形管线
-void VulkanRenderer::createGraphicsPipeline_8()
+//8-创建描述符集布局
+void VulkanRenderer::createDescriptorSetLayout_8()
+{
+    // UboViewProjection 绑定信息
+    VkDescriptorSetLayoutBinding vpLayoutBinding = {};
+    vpLayoutBinding.binding = 0;											// 着色器中的绑定点（通过着色器中的绑定编号指定）
+    vpLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;	    // 描述符类型（uniform、动态 uniform、图像采样器等）
+    vpLayoutBinding.descriptorCount = 1;									// 绑定描述符的数量
+    vpLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;				// 要绑定的着色器阶段
+    vpLayoutBinding.pImmutableSamplers = nullptr;							// 对于纹理：可通过在 layout 中指定来使采样器数据不可变（不可修改）
+
+    // 模型绑定信息
+    VkDescriptorSetLayoutBinding modelLayoutBinding = {};
+    modelLayoutBinding.binding = 1;
+    modelLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+    modelLayoutBinding.descriptorCount = 1;
+    modelLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    modelLayoutBinding.pImmutableSamplers = nullptr;
+
+    std::vector<VkDescriptorSetLayoutBinding> layoutBindings = { vpLayoutBinding, modelLayoutBinding };
+
+    // 使用给定的绑定创建描述符集布局
+    VkDescriptorSetLayoutCreateInfo layoutCreateInfo = {};
+    layoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutCreateInfo.bindingCount = static_cast<uint32_t>(layoutBindings.size());	//绑定信息数量
+    layoutCreateInfo.pBindings = layoutBindings.data();								//绑定信息数组
+
+    // 创建描述符集布局
+    VkResult result = vkCreateDescriptorSetLayout(logicalDevice, &layoutCreateInfo, nullptr, &descriptorSetLayout);
+    if (result != VK_SUCCESS)
+    {
+        throw std::runtime_error("Failed to create a Descriptor Set Layout!");
+    }
+}
+//9-创建图形管线
+void VulkanRenderer::createGraphicsPipeline_9()
 {
     // 读取着色器的SPIR-V代码
     auto vertexShaderCode = readFile_u("shaders/vert.spv");
@@ -645,7 +754,7 @@ void VulkanRenderer::createGraphicsPipeline_8()
     rasterizerCreateInfo.polygonMode =VK_POLYGON_MODE_FILL; // 如何处理顶点之间的填充点
     rasterizerCreateInfo.lineWidth =1.0f;                   // 绘制时线条的粗细
     rasterizerCreateInfo.cullMode = VK_CULL_MODE_BACK_BIT;  // 三角形应剔除哪一面
-    rasterizerCreateInfo.frontFace =VK_FRONT_FACE_CLOCKWISE;// 指定绕行方式以确定哪一侧为正面
+    rasterizerCreateInfo.frontFace =VK_FRONT_FACE_COUNTER_CLOCKWISE;// 指定绕行方式以确定哪一侧为正面
     rasterizerCreateInfo.depthBiasEnable =VK_FALSE;         // 是否为碎片添加深度偏移量（有助于在阴影映射中防止“阴影痤疮”）
 
 
@@ -682,13 +791,13 @@ void VulkanRenderer::createGraphicsPipeline_8()
     //-- 管道布局（待用：应用未来的描述符集布局） --
     VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo ={};
     pipelineLayoutCreateInfo.sType =VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipelineLayoutCreateInfo.setLayoutCount =0;
-    pipelineLayoutCreateInfo.pSetLayouts =nullptr;
+    pipelineLayoutCreateInfo.setLayoutCount =1;
+    pipelineLayoutCreateInfo.pSetLayouts =&descriptorSetLayout;
     pipelineLayoutCreateInfo.pushConstantRangeCount =0;
     pipelineLayoutCreateInfo.pPushConstantRanges =nullptr;
 
 
-    VkResult result =vkCreatePipelineLayout(mainDevice.logicalDevice,&pipelineLayoutCreateInfo,nullptr,&pipelineLayout);
+    VkResult result =vkCreatePipelineLayout(logicalDevice,&pipelineLayoutCreateInfo,nullptr,&pipelineLayout);
     if (result != VK_SUCCESS)
     {
         throw std::runtime_error("Failed to create Pipeline Layout!");
@@ -716,18 +825,18 @@ void VulkanRenderer::createGraphicsPipeline_8()
     pipelineCreateInfo.basePipelineIndex =-1;
 
     // 创建图形管线
-    result =vkCreateGraphicsPipelines(mainDevice.logicalDevice,VK_NULL_HANDLE,1,&pipelineCreateInfo,nullptr,&graphicsPipeline);
+    result =vkCreateGraphicsPipelines(logicalDevice,VK_NULL_HANDLE,1,&pipelineCreateInfo,nullptr,&graphicsPipeline);
     if (result !=VK_SUCCESS)
     {
         throw std::runtime_error("Failed to create a Graphics Pipeline!");
     }
 
     //-- 销毁着色器模块 --
-    vkDestroyShaderModule(mainDevice.logicalDevice,fragmentShaderModule,nullptr);
-    vkDestroyShaderModule(mainDevice.logicalDevice,vertexShaderModule,nullptr);
+    vkDestroyShaderModule(logicalDevice,fragmentShaderModule,nullptr);
+    vkDestroyShaderModule(logicalDevice,vertexShaderModule,nullptr);
 }
-//9-帧缓冲
-void VulkanRenderer::createFramebuffers_9()
+//10-帧缓冲
+void VulkanRenderer::createFramebuffers_10()
 {
     swapChainFramebuffers.resize(swapChainImages.size());
 
@@ -747,32 +856,34 @@ void VulkanRenderer::createFramebuffers_9()
         framebufferCreateInfo.height = swapChainExtent.height;   // 纹理缓冲区高度
         framebufferCreateInfo.layers = 1;                        // 纹理缓冲区图层
 
-        VkResult result = vkCreateFramebuffer(mainDevice.logicalDevice,&framebufferCreateInfo,nullptr,&swapChainFramebuffers[i]);
+        VkResult result = vkCreateFramebuffer(logicalDevice,&framebufferCreateInfo,nullptr,&swapChainFramebuffers[i]);
         if (result != VK_SUCCESS)
         {
             throw std::runtime_error("Failed to create a Framebuffer!");
         }
     }
 }
-//10-命令池
-void VulkanRenderer::createCommandPool_10()
+//11-命令池
+void VulkanRenderer::createCommandPool_11()
 {
     // 从设备获取队列家族的索引
-    QueueFamilyIndices_u queueFamilyIndices = getQueueFamilies_56A_(mainDevice.physicalDevice);
+    QueueFamilyIndices_u queueFamilyIndices = getQueueFamilies_56A_(physicalDevice);
 
     VkCommandPoolCreateInfo poolInfo= {};
     poolInfo.sType =VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     poolInfo.queueFamilyIndex = queueFamilyIndices.graphicsFamily;
+    // 允许重置/重新录制命令缓冲区（ImGui 的绘制数据每帧都会变化，命令缓冲区需要每帧重录）
+    poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 
     // 创建图形队列家族命令池
-    VkResult result =vkCreateCommandPool(mainDevice.logicalDevice,&poolInfo,nullptr,&graphicsCommandPool);
+    VkResult result =vkCreateCommandPool(logicalDevice,&poolInfo,nullptr,&graphicsCommandPool);
     if (result != VK_SUCCESS)
     {
         throw std::runtime_error("Failed to create a Command Pool!");
     }
 }
-//11-命令缓冲区
-void VulkanRenderer::createCommandBuffers_11()
+//12-命令缓冲区
+void VulkanRenderer::createCommandBuffers_12()
 {
     // 将命令缓冲区数量调整为每个帧缓冲区一个
     commandBuffers.resize(swapChainFramebuffers.size());
@@ -784,69 +895,220 @@ void VulkanRenderer::createCommandBuffers_11()
     cbAllocInfo.commandBufferCount =static_cast<uint32_t>(commandBuffers.size());
 
     // 分配命令缓冲区并将句柄放入缓冲区数组中
-    VkResult result = vkAllocateCommandBuffers(mainDevice.logicalDevice,&cbAllocInfo, commandBuffers.data());
+    VkResult result = vkAllocateCommandBuffers(logicalDevice,&cbAllocInfo, commandBuffers.data());
     if (result !=VK_SUCCESS)
     {
         throw std::runtime_error("Failed to allocate Command Buffers!");
     }
+
+    // 每个命令缓冲区都记录一个栅栏，表示它最近一次被提交时所用的栅栏
+    commandBufferFences.resize(commandBuffers.size(), VK_NULL_HANDLE);
 }
-//12-录制命令
-void VulkanRenderer::recordCommands_12()
+//13-排布每个模型的矩阵
+void VulkanRenderer::allocateDynamicBufferTransferSpace_13()
 {
-    // 关于如何开始每个命令缓冲区的信息
-    VkCommandBufferBeginInfo bufferBeginInfo ={};
-    bufferBeginInfo.sType =VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    //bufferBeginInfo.flags =VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
+    // 计算模型数据的对齐情况
+    modelUniformAlignment = (sizeof(UboModel) + minUniformBufferOffset - 1)
+                            & ~(minUniformBufferOffset - 1);
 
-    // 关于如何开始渲染通道的信息（仅适用于图形应用程序）
-    VkRenderPassBeginInfo renderPassBeginInfo = {};
-    renderPassBeginInfo.sType =VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    renderPassBeginInfo.renderPass = renderPass;                       // 渲染通道开始
-    renderPassBeginInfo.renderArea.offset ={0,0};             // 渲染通道的起始像素位置
-    renderPassBeginInfo.renderArea.extent = swapChainExtent;           // 要执行渲染通道的区域大小（从偏移量开始）
+    // 在内存中创建空间，用于存放与所需对齐的动态缓冲区，并可容纳 MAX_OBJECTS 个对象。
+    modelTransferSpace = (UboModel *)_aligned_malloc(modelUniformAlignment * MAX_OBJECTS, modelUniformAlignment);
+}
+//14-在 GPU 侧建缓冲区
+void VulkanRenderer::createUniformBuffers_14()
+{
+    // ViewProjection buffer size
+    VkDeviceSize vpBufferSize = sizeof(UBO_VP);
 
-    VkClearValue clearValues[] = {
-        {0.6f,0.65f,0.4f,1.0f}
-    };
-    renderPassBeginInfo.pClearValues = clearValues;                     // List of clear values (ToDo:Depth Attachment Clear Value)
-    renderPassBeginInfo.clearValueCount = 1;
+    // Model buffer size
+    VkDeviceSize modelBufferSize = modelUniformAlignment * MAX_OBJECTS;
 
-    for (size_t i=0;i<commandBuffers.size();i++)
+    // One uniform buffer for each image (and by extension, command buffer)
+    vpUniformBuffer.resize(swapChainImages.size());
+    vpUniformBufferMemory.resize(swapChainImages.size());
+    modelDUniformBuffer.resize(swapChainImages.size());
+    modelDUniformBufferMemory.resize(swapChainImages.size());
+
+    // Create Uniform buffers
+    for (size_t i = 0; i < swapChainImages.size(); i++)
     {
-        renderPassBeginInfo.framebuffer = swapChainFramebuffers[i];
-        // 开始将命令记录到命令缓冲区！
-        VkResult result =vkBeginCommandBuffer(commandBuffers[i],&bufferBeginInfo);
-        if (result !=VK_SUCCESS){
-            throw std::runtime_error("Failed to start recording a Command Buffer!");
-        }
-        vkCmdBeginRenderPass(commandBuffers[i],&renderPassBeginInfo,VK_SUBPASS_CONTENTS_INLINE);
-            // 将绑定管道用于渲染通道
-            vkCmdBindPipeline(commandBuffers[i],VK_PIPELINE_BIND_POINT_GRAPHICS,graphicsPipeline);
-            // 执行流水线
-            for (size_t j = 0; j < meshList.size(); j++)
-            {
-                VkBuffer vertexBuffers[] = { meshList[j].getVertexBuffer() };					// Buffers to bind
-                VkDeviceSize offsets[] = { 0 };												// Offsets into buffers being bound
-                vkCmdBindVertexBuffers(commandBuffers[i], 0, 1, vertexBuffers, offsets);	// Command to bind vertex buffer before drawing with them
+        createBuffer_u(physicalDevice, logicalDevice, vpBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &vpUniformBuffer[i], &vpUniformBufferMemory[i]);
 
-                // Bind mesh index buffer, with 0 offset and using the uint32 type
-                vkCmdBindIndexBuffer(commandBuffers[i], meshList[j].getIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
-
-                // Execute pipeline
-                vkCmdDrawIndexed(commandBuffers[i], meshList[j].getIndexCount(), 1, 0, 0, 0);
-            }
-            //vkCmdDraw(commandBuffers[i],3,10,0,0);
-        vkCmdEndRenderPass(commandBuffers[i]);
-        //停止录制以命令缓冲区
-        result = vkEndCommandBuffer(commandBuffers[i]);
-        if (result != VK_SUCCESS)
-        {
-            throw std::runtime_error("Failed to stop recording a Command Buffer!");
-        }
+        createBuffer_u(physicalDevice, logicalDevice, modelBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &modelDUniformBuffer[i], &modelDUniformBufferMemory[i]);
     }
 }
-//13-信号量和栅栏
-void VulkanRenderer::createSynchronisation_13()
+//15-创建描述符池
+void VulkanRenderer::createDescriptorPool_15()
+{
+    // 描述符类型 + 描述符数量，而非描述符集（组合后构成池的大小）
+    // 视图投影池
+    VkDescriptorPoolSize vpPoolSize = {};
+    vpPoolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    vpPoolSize.descriptorCount = static_cast<uint32_t>(vpUniformBuffer.size());
+
+    // 模型池（动态）
+    VkDescriptorPoolSize modelPoolSize = {};
+    modelPoolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+    modelPoolSize.descriptorCount = static_cast<uint32_t>(modelDUniformBuffer.size());
+
+    // 池塘尺寸列表
+    std::vector<VkDescriptorPoolSize> descriptorPoolSizes = { vpPoolSize, modelPoolSize };
+
+    // 用于创建描述符池的数据
+    VkDescriptorPoolCreateInfo poolCreateInfo = {};
+    poolCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolCreateInfo.maxSets = static_cast<uint32_t>(swapChainImages.size());					// 可从池中创建的最大描述符集数量
+    poolCreateInfo.poolSizeCount = static_cast<uint32_t>(descriptorPoolSizes.size());		// 传递的池大小数量
+    poolCreateInfo.pPoolSizes = descriptorPoolSizes.data();									// 要创建池的池大小
+
+    // 创建描述符池
+    VkResult result = vkCreateDescriptorPool(logicalDevice, &poolCreateInfo, nullptr, &descriptorPool);
+    if (result != VK_SUCCESS)
+    {
+        throw std::runtime_error("Failed to create a Descriptor Pool!");
+    }
+}
+//16-创建描述符集
+void VulkanRenderer::createDescriptorSets_16()
+{
+    // 调整描述符集列表的大小，使其为每个缓冲区各一个
+    descriptorSets.resize(swapChainImages.size());
+
+    std::vector<VkDescriptorSetLayout> setLayouts(swapChainImages.size(), descriptorSetLayout);
+
+    // 描述符集分配信息
+    VkDescriptorSetAllocateInfo setAllocInfo = {};
+    setAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    setAllocInfo.descriptorPool = descriptorPool;									// 用于分配描述符集的池
+    setAllocInfo.descriptorSetCount = static_cast<uint32_t>(swapChainImages.size());// 要分配的描述符集数量
+    setAllocInfo.pSetLayouts = setLayouts.data();									// 用于分配描述符集的布局（1:1 关系）
+
+    // 分配描述符集（多个）
+    VkResult result = vkAllocateDescriptorSets(logicalDevice, &setAllocInfo, descriptorSets.data());
+    if (result != VK_SUCCESS)
+    {
+    	throw std::runtime_error("Failed to allocate Descriptor Sets!");
+    }
+
+    // 更新所有描述符集缓冲区绑定
+    for (size_t i = 0; i < swapChainImages.size(); i++)
+    {
+	    // 视图投影描述符
+	    // 缓冲区信息和数据偏移量信息
+	    VkDescriptorBufferInfo vpBufferInfo = {};
+	    vpBufferInfo.buffer = vpUniformBuffer[i];		// 缓冲区以获取数据
+	    vpBufferInfo.offset = 0;						// 数据起始位置
+	    vpBufferInfo.range = sizeof(UBO_VP);			// 数据大小
+
+        // 关于绑定与缓冲区之间连接的数据
+	    VkWriteDescriptorSet vpSetWrite = {};
+	    vpSetWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	    vpSetWrite.dstSet = descriptorSets[i];								// 要更新的描述符集
+	    vpSetWrite.dstBinding = 0;											// 要更新的绑定（与布局/着色器上的绑定匹配）
+	    vpSetWrite.dstArrayElement = 0;									    // 数组中要更新的索引
+	    vpSetWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;		// 描述符类型
+	    vpSetWrite.descriptorCount = 1;									    // 要更新的数量
+	    vpSetWrite.pBufferInfo = &vpBufferInfo;							    // 关于要绑定的缓冲区数据的信息
+
+	    // 模型描述符
+	    // 模型缓冲区绑定信息
+	    VkDescriptorBufferInfo modelBufferInfo = {};
+	    modelBufferInfo.buffer = modelDUniformBuffer[i];
+	    modelBufferInfo.offset = 0;
+	    modelBufferInfo.range = modelUniformAlignment;
+
+	    VkWriteDescriptorSet modelSetWrite = {};
+	    modelSetWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	    modelSetWrite.dstSet = descriptorSets[i];
+	    modelSetWrite.dstBinding = 1;
+	    modelSetWrite.dstArrayElement = 0;
+	    modelSetWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+	    modelSetWrite.descriptorCount = 1;
+	    modelSetWrite.pBufferInfo = &modelBufferInfo;
+
+        // 描述符集写入列表
+	    std::vector<VkWriteDescriptorSet> setWrites = { vpSetWrite, modelSetWrite };
+
+        // 更新描述符集以包含新的缓冲区/绑定信息
+	    vkUpdateDescriptorSets(logicalDevice, static_cast<uint32_t>(setWrites.size()), setWrites.data(),
+							0, nullptr);
+    }
+}
+//17-录制命令
+void VulkanRenderer::recordCommands_17(uint32_t imageIndex)
+{
+    // Information about how to begin each command buffer
+    VkCommandBufferBeginInfo bufferBeginInfo = {};
+    bufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+
+    // Information about how to begin a render pass (only needed for graphical applications)
+    VkRenderPassBeginInfo renderPassBeginInfo = {};
+    renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    renderPassBeginInfo.renderPass = renderPass;							// Render Pass to begin
+    renderPassBeginInfo.renderArea.offset = { 0, 0 };						// Start point of render pass in pixels
+    renderPassBeginInfo.renderArea.extent = swapChainExtent;				// Size of region to run render pass on (starting at offset)
+    VkClearValue clearValues[] = {
+    	{0.6f, 0.65f, 0.4, 1.0f}
+    };
+    renderPassBeginInfo.pClearValues = clearValues;							// List of clear values (TODO: Depth Attachment Clear Value)
+    renderPassBeginInfo.clearValueCount = 1;
+
+    // 只录制当前获取到的那张交换链图像对应的命令缓冲区
+    {
+    	uint32_t i = imageIndex;
+    	renderPassBeginInfo.framebuffer = swapChainFramebuffers[i];
+
+    	// Start recording commands to command buffer!
+    	VkResult result = vkBeginCommandBuffer(commandBuffers[i], &bufferBeginInfo);
+    	if (result != VK_SUCCESS)
+    	{
+    		throw std::runtime_error("Failed to start recording a Command Buffer!");
+    	}
+
+    		// Begin Render Pass
+    		vkCmdBeginRenderPass(commandBuffers[i], &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+    			// Bind Pipeline to be used in render pass
+    			vkCmdBindPipeline(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+
+    			for (size_t j = 0; j < meshList.size(); j++)
+    			{
+    				VkBuffer vertexBuffers[] = { meshList[j].getVertexBuffer() };					// Buffers to bind
+    				VkDeviceSize offsets[] = { 0 };												// Offsets into buffers being bound
+    				vkCmdBindVertexBuffers(commandBuffers[i], 0, 1, vertexBuffers, offsets);	// Command to bind vertex buffer before drawing with them
+
+    				// Bind mesh index buffer, with 0 offset and using the uint32 type
+    				vkCmdBindIndexBuffer(commandBuffers[i], meshList[j].getIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
+
+    				// Dynamic Offset Amount
+    				uint32_t dynamicOffset = static_cast<uint32_t>(modelUniformAlignment) * j;
+
+    				// Bind Descriptor Sets
+    				vkCmdBindDescriptorSets(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
+    					0, 1, &descriptorSets[i], 1, &dynamicOffset);
+
+    				// Execute pipeline
+    				vkCmdDrawIndexed(commandBuffers[i], meshList[j].getIndexCount(), 1, 0, 0, 0);
+    			}
+
+    		// 绘制 ImGui 界面（必须在渲染通道结束之前）
+    		ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffers[i]);
+
+    		// End Render Pass
+    		vkCmdEndRenderPass(commandBuffers[i]);
+
+    	// Stop recording to command buffer
+    	result = vkEndCommandBuffer(commandBuffers[i]);
+    	if (result != VK_SUCCESS)
+    	{
+    		throw std::runtime_error("Failed to stop recording a Command Buffer!");
+    	}
+    }
+}
+//18-信号量和栅栏
+void VulkanRenderer::createSynchronisation_18()
 {
     imageAvailable.resize(MAX_FRAME_DRAWS);
     renderFinished.resize(MAX_FRAME_DRAWS);
@@ -863,89 +1125,18 @@ void VulkanRenderer::createSynchronisation_13()
 
     for (size_t i = 0; i < MAX_FRAME_DRAWS; i++)
     {
-        if (vkCreateSemaphore(mainDevice.logicalDevice, &semaphoreCreateInfo, nullptr, &imageAvailable[i]) != VK_SUCCESS ||
-            vkCreateSemaphore(mainDevice.logicalDevice, &semaphoreCreateInfo, nullptr, &renderFinished[i]) != VK_SUCCESS ||
-            vkCreateFence(mainDevice.logicalDevice, &fenceCreateInfo, nullptr, &drawFences[i]) != VK_SUCCESS)
+        if (vkCreateSemaphore(logicalDevice, &semaphoreCreateInfo, nullptr, &imageAvailable[i]) != VK_SUCCESS ||
+            vkCreateSemaphore(logicalDevice, &semaphoreCreateInfo, nullptr, &renderFinished[i]) != VK_SUCCESS ||
+            vkCreateFence(logicalDevice, &fenceCreateInfo, nullptr, &drawFences[i]) != VK_SUCCESS)
         {
             throw std::runtime_error("Failed to create a Semaphore and/or Fence!");
         }
     }
 }
 
-void VulkanRenderer::createUniformBuffers()
-{
-    // ViewProjection buffer size
-    VkDeviceSize vpBufferSize = sizeof(UboViewProjection);
 
-    // Model buffer size
-    VkDeviceSize modelBufferSize = modelUniformAlignment * MAX_OBJECTS;
 
-    // One uniform buffer for each image (and by extension, command buffer)
-    vpUniformBuffer.resize(swapChainImages.size());
-    vpUniformBufferMemory.resize(swapChainImages.size());
-    modelDUniformBuffer.resize(swapChainImages.size());
-    modelDUniformBufferMemory.resize(swapChainImages.size());
 
-    // Create Uniform buffers
-    for (size_t i = 0; i < swapChainImages.size(); i++)
-    {
-        createBuffer(mainDevice.physicalDevice, mainDevice.logicalDevice, vpBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &vpUniformBuffer[i], &vpUniformBufferMemory[i]);
-
-        createBuffer(mainDevice.physicalDevice, mainDevice.logicalDevice, modelBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &modelDUniformBuffer[i], &modelDUniformBufferMemory[i]);
-    }
-}
-
-void VulkanRenderer::createDescriptorPool()
-{
-}
-
-void VulkanRenderer::createDescriptorSets()
-{
-}
-
-void VulkanRenderer::createDescriptorSetLayout()
-{
-    // UboViewProjection Binding Info
-    VkDescriptorSetLayoutBinding vpLayoutBinding = {};
-    vpLayoutBinding.binding = 0;											// Binding point in shader (designated by binding number in shader)
-    vpLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;	// Type of descriptor (uniform, dynamic uniform, image sampler, etc)
-    vpLayoutBinding.descriptorCount = 1;									// Number of descriptors for binding
-    vpLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;				// Shader stage to bind to
-    vpLayoutBinding.pImmutableSamplers = nullptr;							// For Texture: Can make sampler data unchangeable (immutable) by specifying in layout
-
-    // Model Binding Info
-    VkDescriptorSetLayoutBinding modelLayoutBinding = {};
-    modelLayoutBinding.binding = 1;
-    modelLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-    modelLayoutBinding.descriptorCount = 1;
-    modelLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-    modelLayoutBinding.pImmutableSamplers = nullptr;
-
-    std::vector<VkDescriptorSetLayoutBinding> layoutBindings = { vpLayoutBinding, modelLayoutBinding };
-
-    // Create Descriptor Set Layout with given bindings
-    VkDescriptorSetLayoutCreateInfo layoutCreateInfo = {};
-    layoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layoutCreateInfo.bindingCount = static_cast<uint32_t>(layoutBindings.size());	// Number of binding infos
-    layoutCreateInfo.pBindings = layoutBindings.data();								// Array of binding infos
-
-    // Create Descriptor Set Layout
-    VkResult result = vkCreateDescriptorSetLayout(mainDevice.logicalDevice, &layoutCreateInfo, nullptr, &descriptorSetLayout);
-    if (result != VK_SUCCESS)
-    {
-        throw std::runtime_error("Failed to create a Descriptor Set Layout!");
-    }
-}
-
-void VulkanRenderer::updateUniformBuffers(uint32_t imageIndex)
-{
-}
-
-void VulkanRenderer::allocateDynamicBufferTransferSpace()
-{
-}
 
 //====================================================================================================
 //检查实例拓展
@@ -960,17 +1151,18 @@ bool VulkanRenderer::checkInstanceExtensionSupport_1_(std::vector<const char*>* 
     vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, extensions.data());
 
     //检查给定的扩展是否在可用扩展列表中
-    bool hasExtension = false;
-    for (const auto& checkExtension : *checkExtensions)
+    for (const auto &checkExtension : *checkExtensions)
     {
-        for (const auto& extension : extensions)
+        bool hasExtension = false;
+        for (const auto &extension : extensions)
         {
-            if (strcmp(checkExtension, extension.extensionName))
+            if (strcmp(checkExtension, extension.extensionName) == 0)
             {
                 hasExtension = true;
                 break;
             }
         }
+
         if (!hasExtension)
         {
             return false;
@@ -1099,7 +1291,7 @@ QueueFamilyIndices_u VulkanRenderer::getQueueFamilies_56A_(VkPhysicalDevice devi
         //检查队列家族索引是否处于有效状态，如果是则停止搜索
         if (indices.isVlid())
         {
-            mainDevice.physicalDevice = device;
+            physicalDevice = device;
             break;
         }
         i++;
@@ -1222,7 +1414,7 @@ VkImageView VulkanRenderer::createImageView(VkImage image, VkFormat format, VkIm
 
     // 创建图像视图并返回
     VkImageView imageView;
-    VkResult result =vkCreateImageView(mainDevice.logicalDevice,&viewCreateInfo,nullptr,&imageView);
+    VkResult result =vkCreateImageView(logicalDevice,&viewCreateInfo,nullptr,&imageView);
     if (result != VK_SUCCESS)
     {
         throw std::runtime_error("Failed to create an Image View!");
@@ -1242,7 +1434,7 @@ VkShaderModule VulkanRenderer::createShaderModule(const std::vector<char>& code)
     shaderModuleCreateInfo.pCode = reinterpret_cast<const uint32_t *>(code.data());
     // 指向代码的指针（uint32_t 指针类型）
     VkShaderModule shaderModule;
-    VkResult result = vkCreateShaderModule(mainDevice.logicalDevice,&shaderModuleCreateInfo,nullptr,&shaderModule);
+    VkResult result = vkCreateShaderModule(logicalDevice,&shaderModuleCreateInfo,nullptr,&shaderModule);
     if (result != VK_SUCCESS)
     {
         throw std::runtime_error("Failed to create a shader module!");
@@ -1250,3 +1442,25 @@ VkShaderModule VulkanRenderer::createShaderModule(const std::vector<char>& code)
     return shaderModule;
 };
 //====================================================================================================
+
+
+void VulkanRenderer::updateUniformBuffers(uint32_t imageIndex)
+{
+    // 复制VP数据
+    void * data;
+    vkMapMemory(logicalDevice, vpUniformBufferMemory[imageIndex], 0, sizeof(UBO_VP), 0, &data);
+    memcpy(data, &ubo_VP, sizeof(UBO_VP));
+    vkUnmapMemory(logicalDevice, vpUniformBufferMemory[imageIndex]);
+
+    // 复制模型数据
+    for (size_t i = 0; i < meshList.size(); i++)
+    {
+        UboModel * thisModel = (UboModel *)((uint64_t)modelTransferSpace + (i * modelUniformAlignment));
+        *thisModel = meshList[i].getModel();
+    }
+
+    // 映射模型数据列表
+    vkMapMemory(logicalDevice, modelDUniformBufferMemory[imageIndex], 0, modelUniformAlignment * meshList.size(), 0, &data);
+    memcpy(data, modelTransferSpace, modelUniformAlignment * meshList.size());
+    vkUnmapMemory(logicalDevice, modelDUniformBufferMemory[imageIndex]);
+}
