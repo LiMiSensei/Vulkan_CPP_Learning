@@ -16,9 +16,9 @@
 | Vulkan API | 图形渲染 |
 | GLFW 3.5.1 | 窗口管理 |
 | GLM 1.0.3 | 数学库 |
-| ImGui 1.92.9b | 已集成，预留 UI |
-| Assimp 5.1.1 | 已集成，预留模型加载 |
-
+| ImGui 1.92.9b | UI库 |
+| Assimp 5.1.1 | 模型加载库 |
+| SPIRV-Reflect| SPIR-V 反射 |
 ## 环境要求
 
 - Windows
