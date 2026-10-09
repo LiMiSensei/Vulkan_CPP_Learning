@@ -69,18 +69,18 @@ target_link_libraries(VulkanTest PRIVATE
         "$ENV{VULKAN_SDK}/Lib/dxcompiler.lib")
 
 
-#拷贝文件
+#拷贝文件 dxcompiler.dll
 add_custom_command(TARGET VulkanTest POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${CMAKE_SOURCE_DIR}/Library/VulkanTools/dxcompiler.dll"
                 "$<TARGET_FILE_DIR:VulkanTest>"
         COMMENT "Copying dxcompiler.dll next to the executable")
-
+#拷贝文件 dxcompiler.dll
 add_custom_command(TARGET VulkanTest POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
-                ${CMAKE_SOURCE_DIR}/shaders
-                $<TARGET_FILE_DIR:VulkanTest>/shaders
-        COMMENT "Copying shaders to $<TARGET_FILE_DIR:VulkanTest>/shaders")
+                ${CMAKE_SOURCE_DIR}/Assets
+                $<TARGET_FILE_DIR:VulkanTest>/Assets
+        COMMENT "Copying Assets to $<TARGET_FILE_DIR:VulkanTest>/Assets")
 
 # 如果Win32编译
 if (WIN32)
